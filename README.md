@@ -15,10 +15,9 @@ Run DeepSeek Harness (DSH) plugins inside [Forsion](https://github.com/Changan-S
 
 ## 状态 / Status
 
-**v0.1.0**（2026-10-18）：可安装的 Forsion 插件，钉死 DSH `0.2.1-rc.2`、Node `v24.22.0`。还没发布到任何市场。
+**v0.1.0**（2026-10-18）：可安装的 Forsion 插件，钉死 DSH `0.2.1-rc.2`、Node `v24.22.0`。开源（MIT），暂不上 Forsion 商店，按下面「安装」手动装。
 
-- 方案正典：Forsion-Root `docs/ToBeImproved/DSH2Forsion兼容层方案_2026-10-18.md`
-- M0 可行性报告：Forsion-Root `docs/ToBeImproved/DSH2Forsion-M0报告_2026-10-18.md`
+设计方案与 M0 可行性报告在维护者的内部文档仓里；公开的要点见 [MAPPING.md](MAPPING.md)（架构与映射）和 [COMPATIBILITY.md](COMPATIBILITY.md)（M0 兼容矩阵），原始数据在 [`spike/m0/`](spike/m0/)。
 
 v0.1 does: download the runtime after you confirm, start and stop DSH, embed the DSH interface in a Space, install and remove DSH plugins with a trial start first, roll back, and offer DSH plugin tools and prompt sections to Tangu. It does not yet render DSH plugin UI inside native Forsion views (M3), and has not been run against a real model.
 
@@ -74,4 +73,6 @@ CI（`.github/workflows/ci.yml`）每次推送跑前三条和 Linux 上的完整
 
 ## 许可 / License
 
-MIT（待首次发布前确认）。不打包 DSH 运行时与任何第三方插件：运行时在用户确认后下载，插件由用户自己安装。
+[MIT](LICENSE)。本仓不分发 DSH 运行时与任何第三方插件：运行时在用户确认后从 npm 下载，按它们各自的许可使用；DSH 插件由用户自己安装。
+
+MIT licensed. This repository does not redistribute the DSH runtime or any third-party plugin: the runtime is downloaded from npm after you confirm, under its own license, and you install DSH plugins yourself. DeepSeek and DeepSeek Harness are trademarks of their owners; this project is not affiliated with or endorsed by DeepSeek.

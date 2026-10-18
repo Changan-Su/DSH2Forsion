@@ -1,6 +1,6 @@
 # M0 spike 仪器
 
-M0 要回答六个可行性问题，结论见 Forsion-Root `docs/ToBeImproved/DSH2Forsion-M0报告_2026-10-18.md`。这里放的是能重跑的东西。
+M0 要回答六个可行性问题，结论报告在维护者的内部文档仓里，公开摘要见仓根 [COMPATIBILITY.md](../../COMPATIBILITY.md)。这里放的是能重跑的东西。
 
 | 文件 | 用途 |
 |---|---|
