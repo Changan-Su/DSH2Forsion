@@ -53,5 +53,6 @@
 ### 已知的盲区
 
 - 矩阵外的插件如果只坏浏览器侧（像 `relay-dsh-plugin-files`），试启动看不出来，装上后 DSH Space 会停在「Failed to load plugins」。这时在 **设置 → DSH2Forsion** 里点「撤销上一次改动」。这种情况下别用「恢复到上次能启动的状态」：DSH 照样能启动，所以「上次能启动的状态」已经包含了这个插件。
+- 「撤销上一次改动」恢复的是那次改动之前的整份 profile，包括插件设置。被换下来的那份（含之后在 DSH Space 里改过的设置）存在插件数据目录的 `backups/undone-*`，留最近 5 份。
 - 在 DSH Space 自己的插件页里装的插件不经过试启动。
 - 矩阵只在 Linux x64 上跑过；macOS 与 Windows 靠 CI 的端到端测试，没有逐个插件跑。
