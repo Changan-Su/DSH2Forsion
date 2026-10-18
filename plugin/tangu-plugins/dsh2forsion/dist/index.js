@@ -8,6 +8,14 @@ import { join as join6 } from "node:path";
 var DSH_VERSION = "0.2.1-rc.2";
 var NODE_VERSION = "v24.22.0";
 var PNPM_VERSION = "11.28.6";
+var NODE_SHA256 = {
+  "node-v24.22.0-darwin-arm64.tar.gz": "6a9724d9b50a5f22b4816cded441b5a8d9ddae546191a5e5b7efa5a5e2ee26d5",
+  "node-v24.22.0-darwin-x64.tar.gz": "495e3f273c645f3c4677d438304cdfc701729ea5dec5728f5c8e76a2dece4b91",
+  "node-v24.22.0-linux-arm64.tar.gz": "b7e7991d5407815adfa74a2a9cd4db683552c8ce32ff4a295c22e972849c3f5d",
+  "node-v24.22.0-linux-x64.tar.gz": "28ea0a438de9a13bd7891fd758eee6c7819ee8af5442dfd8d45bd65e56d4228c",
+  "node-v24.22.0-win-arm64.zip": "3a5c209a5bc59e65b3bc0fa13ed5e166a26bd3d55332847f498b76b037408d61",
+  "node-v24.22.0-win-x64.zip": "f9683a19877e12a9b167305c8db71040d812876359de21f0d2e97c3f321f80c3"
+};
 var TRUSTED_NATIVE_PACKAGES = ["koffi", "node-pty", "@deepseek-ai/dsh-subprocess-local"];
 var PROFILE = "forsion";
 var BRIDGE_PACKAGE = "dsh2forsion-bridge";
@@ -58,7 +66,7 @@ function layout(root, platform = process.platform) {
 
 // src/engine/plugins.mjs
 import { existsSync as existsSync2 } from "node:fs";
-import { cp as cp2, mkdir as mkdir2, readFile as readFile2, rm as rm2, writeFile } from "node:fs/promises";
+import { cp as cp2, mkdir as mkdir2, readFile as readFile2, readdir as readdir2, rm as rm2, writeFile } from "node:fs/promises";
 import { join as join4 } from "node:path";
 
 // src/engine/profile.mjs
@@ -270,7 +278,7 @@ async function newestBackup(backupsDir) {
   }
   const dirs = [];
   for (const e of entries) {
-    if (e === LAST_GOOD) continue;
+    if (e === LAST_GOOD || e.startsWith("undone-")) continue;
     try {
       if ((await stat(join2(backupsDir, e))).isDirectory()) dirs.push(e);
     } catch {
@@ -287,6 +295,7 @@ import { homedir } from "node:os";
 import { join as join3 } from "node:path";
 var READY = /dsh web: (http:\/\/127\.0\.0\.1:\d+)\/\?token=(\S+)/;
 var LOG_LIMIT = 400;
+var BRIDGE_TIMEOUT_MS = 15e3;
 var Sidecar = class {
   /** @param {ReturnType<import('./layout.mjs').layout>} paths */
   constructor(paths, { home = paths.home, onState = () => {
@@ -388,6 +397,7 @@ var Sidecar = class {
         reject(new Error(this.error));
       }, READY_TIMEOUT_MS);
       child.once("error", (error) => {
+        if (this.child === child) this.child = null;
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -411,30 +421,38 @@ var Sidecar = class {
       });
     });
   }
-  /** 有界停止：先 SIGTERM，等不到再 SIGKILL。 */
+  /** 有界停止：先 SIGTERM，等不到再 SIGKILL；SIGKILL 之后最多再等 2 秒，绝不无限期挂住。 */
   stop(graceMs = 4e3) {
     const child = this.child;
-    if (!child) {
+    const gone = !child || child.pid === void 0 || child.exitCode !== null || child.signalCode !== null;
+    if (gone) {
+      if (this.child === child) this.child = null;
       if (this.state !== "failed") this.setState("stopped");
       return Promise.resolve();
     }
     return new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(kill);
+        clearTimeout(giveUp);
+        if (this.child === child) this.child = null;
+        this.setState("stopped");
+        resolve();
+      };
       const kill = setTimeout(() => {
         try {
           child.kill("SIGKILL");
         } catch {
         }
       }, graceMs);
-      child.once("exit", () => {
-        clearTimeout(kill);
-        this.setState("stopped");
-        resolve();
-      });
+      const giveUp = setTimeout(finish, graceMs + 2e3);
+      child.once("exit", finish);
       try {
         child.kill("SIGTERM");
       } catch {
-        clearTimeout(kill);
-        resolve();
+        finish();
       }
     });
   }
@@ -443,6 +461,7 @@ var Sidecar = class {
     if (this.state !== "running" || !this.base) throw new Error("DSH is not running");
     const res = await fetch(`${this.base}/forsion-bridge${path}`, {
       ...init,
+      signal: init.signal ?? AbortSignal.timeout(BRIDGE_TIMEOUT_MS),
       headers: { "content-type": "application/json", "x-dsh2forsion-secret": this.secret, ...init.headers ?? {} }
     });
     const body = await res.json().catch(() => ({}));
@@ -453,14 +472,15 @@ var Sidecar = class {
   async rpc(method, args = {}) {
     if (this.state !== "running" || !this.base) throw new Error("DSH is not running");
     if (!this.cookie || this.cookieFor !== this.base) {
-      const login = await fetch(`${this.base}/?token=${this.token}`, { redirect: "manual" });
+      const login = await fetch(`${this.base}/?token=${this.token}`, { redirect: "manual", signal: AbortSignal.timeout(BRIDGE_TIMEOUT_MS) });
       this.cookie = (login.headers.get("set-cookie") ?? "").split(";")[0];
       this.cookieFor = this.base;
     }
     const res = await fetch(`${this.base}/api/${method}`, {
       method: "POST",
       headers: { "content-type": "application/json", origin: this.base, cookie: this.cookie },
-      body: JSON.stringify({ type: "client-request", rpcId: `d2f-${Date.now()}`, method, payload: { args } })
+      body: JSON.stringify({ type: "client-request", rpcId: `d2f-${Date.now()}`, method, payload: { args } }),
+      signal: AbortSignal.timeout(BRIDGE_TIMEOUT_MS)
     });
     const body = await res.json();
     if (!body?.result?.ok) throw new Error(body?.result?.error?.message ?? `rpc ${method} failed`);
@@ -475,6 +495,17 @@ var Sidecar = class {
 
 // src/engine/plugins.mjs
 var NPM_NAME = /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i;
+var UNDONE_PREFIX = "undone-";
+var UNDONE_KEEP = 5;
+async function pruneUndone(backupsDir) {
+  let entries = [];
+  try {
+    entries = (await readdir2(backupsDir)).filter((e) => e.startsWith(UNDONE_PREFIX)).sort();
+  } catch {
+    return;
+  }
+  for (const e of entries.slice(0, Math.max(0, entries.length - UNDONE_KEEP))) await rm2(join4(backupsDir, e), { recursive: true, force: true });
+}
 async function specName(spec) {
   if (typeof spec !== "string" || !spec.trim()) throw new Error("empty plugin spec");
   const s = spec.trim();
@@ -521,10 +552,20 @@ var PluginManager = class {
     this.deps = deps;
     this.queue = Promise.resolve();
     this.busy = null;
+    this.disposed = false;
+    this.probe = null;
   }
-  /** 插件操作一次只做一件。 */
+  /** 插件被停用：不再接新活，正在试启动的那个 DSH 收掉；跑到一半的那件不会再去重启 sidecar。 */
+  async dispose() {
+    this.disposed = true;
+    await this.probe?.stop(1e3).catch(() => {
+    });
+  }
+  /** 插件操作一次只做一件。停用以后不再接新活。 */
   exclusive(label, fn) {
+    if (this.disposed) return Promise.reject(new Error("DSH2Forsion is being turned off"));
     const job = this.queue.then(async () => {
+      if (this.disposed) throw new Error("DSH2Forsion is being turned off");
       this.busy = label;
       try {
         return await fn();
@@ -590,7 +631,9 @@ var PluginManager = class {
     const shadowed = await shadowedCorePackages(this.paths, trial);
     const version = (await userPlugins(trial)).find((p) => p.name === name)?.version;
     const graded = version ? known.plugins?.[`${name}@${version}`] ?? null : null;
+    if (this.disposed) return { status: "failed", name, spec, message: "DSH2Forsion is being turned off" };
     const probe = new Sidecar(this.paths, { home: trial, label: "trial" });
+    this.probe = probe;
     let ready = false;
     try {
       await probe.start();
@@ -601,6 +644,8 @@ var PluginManager = class {
     if (ready) await new Promise((r) => setTimeout(r, 1500));
     const lines = [...probe.lines];
     await probe.stop();
+    this.probe = null;
+    if (this.disposed) return { status: "failed", name, spec, message: "DSH2Forsion is being turned off" };
     const judged = judgeTrial({ ready, lines, shadowed, pluginName: name, graded });
     log(`trial: ${judged.verdict}`);
     if (judged.verdict === "blocked" && !force) return { status: "blocked", name, spec, reasons: judged.reasons };
@@ -622,6 +667,7 @@ var PluginManager = class {
     return { status: "installed", name, spec, exempted, verdict: judged.verdict, reasons: judged.reasons };
   }
   remove(name) {
+    if (typeof name !== "string" || !NPM_NAME.test(name)) return Promise.resolve({ status: "failed", name, message: "not an npm package name" });
     return this.exclusive(`remove ${name}`, async () => {
       await this.snapshot(`before remove ${name}`);
       const r = await dsh(this.paths, this.paths.home, ["plugin", "--profile", PROFILE, "remove", name], { log: this.deps.log });
@@ -630,15 +676,22 @@ var PluginManager = class {
       return { status: "removed", name };
     });
   }
-  /** 回到最近一次改动之前；用掉的快照删掉，再回滚就往更早走。 */
+  /**
+   * 回到最近一次改动之前；用掉的快照删掉，再回滚就往更早走。
+   * 被换下来的那份（含之后在 DSH Space 里改的插件设置、从 DSH 插件页装的插件）先存进 backups/undone-<时刻>，
+   * 不参与回滚顺序、只留最近几份：回滚错了还能手动拿回来。恢复失败就不删快照。
+   */
   rollback() {
     return this.exclusive("rollback", async () => {
       const dir = await newestBackup(this.paths.backups);
       if (!dir) return { status: "nothing-to-roll-back" };
-      await this.restore(dir);
+      const undone = await this.snapshot("replaced by rollback", UNDONE_PREFIX);
+      await pruneUndone(this.paths.backups);
+      const ok = await this.restore(dir);
+      if (!ok) return { status: "failed", message: "could not reinstall the plugins of that snapshot; the snapshot was kept", kept: undone };
       await rm2(dir, { recursive: true, force: true });
       await this.deps.restart();
-      return { status: "rolled-back", to: dir };
+      return { status: "rolled-back", to: dir, kept: undone };
     });
   }
   /** sidecar 成功启动后调用：记下这份能启动的 profile。 */
@@ -660,9 +713,9 @@ var PluginManager = class {
       return { status: "restored" };
     });
   }
-  async snapshot(label) {
+  async snapshot(label, prefix = "") {
     const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
-    const dir = join4(this.paths.backups, stamp);
+    const dir = join4(this.paths.backups, `${prefix}${stamp}`);
     await mkdir2(dir, { recursive: true });
     await copyProfileFiles(profileDir(this.paths.home), join4(dir, "profile"));
     await cp2(join4(this.paths.home, "cordis.patch.yml"), join4(dir, "home.cordis.patch.yml")).catch(() => {
@@ -676,6 +729,7 @@ var PluginManager = class {
     if (existsSync2(join4(dir, "home.cordis.patch.yml"))) await cp2(join4(dir, "home.cordis.patch.yml"), join4(this.paths.home, "cordis.patch.yml"));
     const r = await dsh(this.paths, this.paths.home, ["plugin", "--profile", PROFILE, "install", "--ignore-scripts"], { log: this.deps.log });
     if (r.code !== 0) this.deps.log(`restore install failed: ${tail(r.out, 6)}`);
+    return r.code === 0;
   }
 };
 
@@ -730,9 +784,12 @@ async function installNode(paths, { source, log, signal }) {
     const base = `${NODE_MIRRORS[which]}/${NODE_VERSION}`;
     try {
       log(`download ${file} (${which})`);
-      await download(`${base}/SHASUMS256.txt`, join5(tmp, "SHASUMS256.txt"), signal);
-      const sums = await readFile3(join5(tmp, "SHASUMS256.txt"), "utf8");
-      const expected = sums.split("\n").map((l) => l.trim().split(/\s+/)).find(([, f]) => f === file)?.[0];
+      let expected = NODE_SHA256[file];
+      if (!expected) {
+        await download(`${base}/SHASUMS256.txt`, join5(tmp, "SHASUMS256.txt"), signal);
+        const sums = await readFile3(join5(tmp, "SHASUMS256.txt"), "utf8");
+        expected = sums.split("\n").map((l) => l.trim().split(/\s+/)).find(([, f]) => f === file)?.[0];
+      }
       if (!expected) throw new Error(`${file} missing from SHASUMS256.txt`);
       await download(`${base}/${file}`, join5(tmp, file), signal);
       const actual = await sha256(join5(tmp, file));
@@ -954,24 +1011,42 @@ function createPlugin() {
         enabled: () => store.isPluginEnabledSync(PLUGIN_ID) && settings().exposeTools !== false
       });
       const job = { name: null, running: false, error: null, lines: [] };
-      const start = async () => {
+      let disposed = false;
+      const offline = new Error("DSH2Forsion is turned off");
+      let starting = null;
+      const startNow = async () => {
         if (!runtimeInstalled(paths)) throw new Error("runtime not installed");
         await ensureProfile(paths, paths.home, { log });
+        if (disposed) throw offline;
         if (await ensureBridge(paths, paths.home, bridgeDir, { log })) log("bridge installed / updated");
+        if (disposed) throw offline;
         await sidecar.start();
+        if (disposed) {
+          await sidecar.stop(1e3);
+          throw offline;
+        }
         await plugins.saveLastGood().catch((error) => log(`save last good failed: ${error.message}`));
         await tools.refresh();
+        if (disposed) return;
         tools.startPolling();
       };
-      const stop = async () => {
+      const start = () => {
+        if (disposed) return Promise.reject(offline);
+        starting ??= startNow().finally(() => {
+          starting = null;
+        });
+        return starting;
+      };
+      const stop = async (graceMs) => {
         tools.stopPolling();
-        await sidecar.stop();
+        await sidecar.stop(graceMs);
         await tools.refresh();
       };
       const restart = async () => {
+        if (disposed) return;
         const wasRunning = sidecar.state === "running" || settings().autoStart !== false;
         await stop();
-        if (wasRunning) await start().catch((error) => log(`restart failed: ${error.message}`));
+        if (wasRunning && !disposed) await start().catch((error) => log(`restart failed: ${error.message}`));
       };
       const plugins = new PluginManager(paths, { main: sidecar, bridgeDir, known, log, restart });
       const runJob = (name, fn) => {
@@ -990,7 +1065,14 @@ function createPlugin() {
         });
         return true;
       };
-      state = { sidecar, tools, plugins, stop };
+      const shutdown = async () => {
+        disposed = true;
+        await plugins.dispose();
+        if (starting) await Promise.race([starting.catch(() => {
+        }), new Promise((r) => setTimeout(r, 2e3))]);
+        await stop(1500);
+      };
+      state = { shutdown };
       ctx.registerPlugin({
         id: PLUGIN_ID,
         name: "DSH2Forsion",
@@ -1098,7 +1180,7 @@ function createPlugin() {
     async deactivate() {
       const s = state;
       state = null;
-      if (s) await s.stop().catch(() => {
+      if (s) await s.shutdown().catch(() => {
       });
     }
   };

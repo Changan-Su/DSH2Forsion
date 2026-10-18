@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile, rename } from 'node:fs/promises'
 import { join } from 'node:path'
-import { DSH_VERSION, NODE_MIRRORS, NODE_VERSION, NPM_REGISTRIES, PNPM_VERSION, TRUSTED_NATIVE_PACKAGES } from './constants.mjs'
+import { DSH_VERSION, NODE_MIRRORS, NODE_SHA256, NODE_VERSION, NPM_REGISTRIES, PNPM_VERSION, TRUSTED_NATIVE_PACKAGES } from './constants.mjs'
 import { childEnv } from './env.mjs'
 import { nodePlatform } from './layout.mjs'
 import { run, tail } from './proc.mjs'
@@ -63,9 +63,12 @@ async function installNode(paths, { source, log, signal }) {
     const base = `${NODE_MIRRORS[which]}/${NODE_VERSION}`
     try {
       log(`download ${file} (${which})`)
-      await download(`${base}/SHASUMS256.txt`, join(tmp, 'SHASUMS256.txt'), signal)
-      const sums = await readFile(join(tmp, 'SHASUMS256.txt'), 'utf8')
-      const expected = sums.split('\n').map(l => l.trim().split(/\s+/)).find(([, f]) => f === file)?.[0]
+      let expected = NODE_SHA256[file]
+      if (!expected) {
+        await download(`${base}/SHASUMS256.txt`, join(tmp, 'SHASUMS256.txt'), signal)
+        const sums = await readFile(join(tmp, 'SHASUMS256.txt'), 'utf8')
+        expected = sums.split('\n').map(l => l.trim().split(/\s+/)).find(([, f]) => f === file)?.[0]
+      }
       if (!expected) throw new Error(`${file} missing from SHASUMS256.txt`)
       await download(`${base}/${file}`, join(tmp, file), signal)
       const actual = await sha256(join(tmp, file))

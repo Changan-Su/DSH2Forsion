@@ -42,21 +42,35 @@ export function createPlugin() {
       })
       const job = { name: null, running: false, error: null, lines: [] }
 
+      // 停用后（宿主启动时会先激活全部、再停掉被关的）不许再起 DSH：每个 await 之后都看一眼
+      let disposed = false
+      const offline = new Error('DSH2Forsion is turned off')
+      let starting = null
       // 起 sidecar 前把 profile 和桥备好；起来以后同步一次工具表
-      const start = async () => {
+      const startNow = async () => {
         if (!runtimeInstalled(paths)) throw new Error('runtime not installed')
         await ensureProfile(paths, paths.home, { log })
+        if (disposed) throw offline
         if (await ensureBridge(paths, paths.home, bridgeDir, { log })) log('bridge installed / updated')
+        if (disposed) throw offline
         await sidecar.start()
+        if (disposed) { await sidecar.stop(1000); throw offline }
         await plugins.saveLastGood().catch(error => log(`save last good failed: ${error.message}`))
         await tools.refresh()
+        if (disposed) return
         tools.startPolling()
       }
-      const stop = async () => { tools.stopPolling(); await sidecar.stop(); await tools.refresh() }
+      const start = () => {
+        if (disposed) return Promise.reject(offline)
+        starting ??= startNow().finally(() => { starting = null })
+        return starting
+      }
+      const stop = async (graceMs) => { tools.stopPolling(); await sidecar.stop(graceMs); await tools.refresh() }
       const restart = async () => {
+        if (disposed) return
         const wasRunning = sidecar.state === 'running' || settings().autoStart !== false
         await stop()
-        if (wasRunning) await start().catch(error => log(`restart failed: ${error.message}`))
+        if (wasRunning && !disposed) await start().catch(error => log(`restart failed: ${error.message}`))
       }
       const plugins = new PluginManager(paths, { main: sidecar, bridgeDir, known, log, restart })
 
@@ -69,7 +83,14 @@ export function createPlugin() {
         return true
       }
 
-      state = { sidecar, tools, plugins, stop }
+      // 限时 5 秒：正在起的那次最多等 2 秒（等不到也没关系，它每一步都会看 disposed），sidecar 给 1.5 秒优雅退出
+      const shutdown = async () => {
+        disposed = true
+        await plugins.dispose()
+        if (starting) await Promise.race([starting.catch(() => {}), new Promise(r => setTimeout(r, 2000))])
+        await stop(1500)
+      }
+      state = { shutdown }
 
       ctx.registerPlugin({
         id: PLUGIN_ID,
@@ -167,10 +188,9 @@ export function createPlugin() {
     },
 
     async deactivate() {
-      // 限时 5s：sidecar 给 4s 优雅退出，到点强杀
       const s = state
       state = null
-      if (s) await s.stop().catch(() => {})
+      if (s) await s.shutdown().catch(() => {})
     },
   }
 }

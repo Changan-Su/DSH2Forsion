@@ -2,7 +2,7 @@
 // M0 随机样本里 30 个有 2 个会拖垮整个 sidecar 或界面，DSH 自己的插件管理器只在 pnpm 失败时回滚，
 // 所以装之前先在临时 DSH_HOME 里整套装一遍、起一次，过了才动用户的 profile。
 import { existsSync } from 'node:fs'
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DSH_VERSION, PROFILE } from './constants.mjs'
 import { LAST_GOOD, copyProfileFiles, dsh, newestBackup, profileDir, shadowedCorePackages, userPlugins } from './profile.mjs'
@@ -10,6 +10,15 @@ import { tail } from './proc.mjs'
 import { Sidecar } from './sidecar.mjs'
 
 const NPM_NAME = /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i
+const UNDONE_PREFIX = 'undone-'
+const UNDONE_KEEP = 5
+
+/** 回滚换下来的那几份只留最近 UNDONE_KEEP 份。 */
+async function pruneUndone(backupsDir) {
+  let entries = []
+  try { entries = (await readdir(backupsDir)).filter(e => e.startsWith(UNDONE_PREFIX)).sort() } catch { return }
+  for (const e of entries.slice(0, Math.max(0, entries.length - UNDONE_KEEP))) await rm(join(backupsDir, e), { recursive: true, force: true })
+}
 
 /** `name@1.2.3` / `@scope/name@^1` / `name` → 包名；`file:` 规格读它的 package.json。 */
 export async function specName(spec) {
@@ -70,11 +79,21 @@ export class PluginManager {
     this.deps = deps
     this.queue = Promise.resolve()
     this.busy = null
+    this.disposed = false
+    this.probe = null
   }
 
-  /** 插件操作一次只做一件。 */
+  /** 插件被停用：不再接新活，正在试启动的那个 DSH 收掉；跑到一半的那件不会再去重启 sidecar。 */
+  async dispose() {
+    this.disposed = true
+    await this.probe?.stop(1000).catch(() => {})
+  }
+
+  /** 插件操作一次只做一件。停用以后不再接新活。 */
   exclusive(label, fn) {
+    if (this.disposed) return Promise.reject(new Error('DSH2Forsion is being turned off'))
     const job = this.queue.then(async () => {
+      if (this.disposed) throw new Error('DSH2Forsion is being turned off')
       this.busy = label
       try { return await fn() } finally { this.busy = null }
     })
@@ -131,13 +150,17 @@ export class PluginManager {
     const shadowed = await shadowedCorePackages(this.paths, trial)
     const version = (await userPlugins(trial)).find(p => p.name === name)?.version
     const graded = version ? known.plugins?.[`${name}@${version}`] ?? null : null
+    if (this.disposed) return { status: 'failed', name, spec, message: 'DSH2Forsion is being turned off' }
     const probe = new Sidecar(this.paths, { home: trial, label: 'trial' })
+    this.probe = probe
     let ready = false
     try { await probe.start(); ready = true } catch { ready = false }
     // 等日志里的激活告警落地
     if (ready) await new Promise(r => setTimeout(r, 1500))
     const lines = [...probe.lines]
     await probe.stop()
+    this.probe = null
+    if (this.disposed) return { status: 'failed', name, spec, message: 'DSH2Forsion is being turned off' }
     const judged = judgeTrial({ ready, lines, shadowed, pluginName: name, graded })
     log(`trial: ${judged.verdict}`)
     if (judged.verdict === 'blocked' && !force) return { status: 'blocked', name, spec, reasons: judged.reasons }
@@ -161,6 +184,7 @@ export class PluginManager {
   }
 
   remove(name) {
+    if (typeof name !== 'string' || !NPM_NAME.test(name)) return Promise.resolve({ status: 'failed', name, message: 'not an npm package name' })
     return this.exclusive(`remove ${name}`, async () => {
       await this.snapshot(`before remove ${name}`)
       const r = await dsh(this.paths, this.paths.home, ['plugin', '--profile', PROFILE, 'remove', name], { log: this.deps.log })
@@ -170,15 +194,22 @@ export class PluginManager {
     })
   }
 
-  /** 回到最近一次改动之前；用掉的快照删掉，再回滚就往更早走。 */
+  /**
+   * 回到最近一次改动之前；用掉的快照删掉，再回滚就往更早走。
+   * 被换下来的那份（含之后在 DSH Space 里改的插件设置、从 DSH 插件页装的插件）先存进 backups/undone-<时刻>，
+   * 不参与回滚顺序、只留最近几份：回滚错了还能手动拿回来。恢复失败就不删快照。
+   */
   rollback() {
     return this.exclusive('rollback', async () => {
       const dir = await newestBackup(this.paths.backups)
       if (!dir) return { status: 'nothing-to-roll-back' }
-      await this.restore(dir)
+      const undone = await this.snapshot('replaced by rollback', UNDONE_PREFIX)
+      await pruneUndone(this.paths.backups)
+      const ok = await this.restore(dir)
+      if (!ok) return { status: 'failed', message: 'could not reinstall the plugins of that snapshot; the snapshot was kept', kept: undone }
       await rm(dir, { recursive: true, force: true })
       await this.deps.restart()
-      return { status: 'rolled-back', to: dir }
+      return { status: 'rolled-back', to: dir, kept: undone }
     })
   }
 
@@ -201,9 +232,9 @@ export class PluginManager {
     })
   }
 
-  async snapshot(label) {
+  async snapshot(label, prefix = '') {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const dir = join(this.paths.backups, stamp)
+    const dir = join(this.paths.backups, `${prefix}${stamp}`)
     await mkdir(dir, { recursive: true })
     await copyProfileFiles(profileDir(this.paths.home), join(dir, 'profile'))
     await cp(join(this.paths.home, 'cordis.patch.yml'), join(dir, 'home.cordis.patch.yml')).catch(() => {})
@@ -217,5 +248,6 @@ export class PluginManager {
     // 按恢复后的清单和锁文件重装 node_modules
     const r = await dsh(this.paths, this.paths.home, ['plugin', '--profile', PROFILE, 'install', '--ignore-scripts'], { log: this.deps.log })
     if (r.code !== 0) this.deps.log(`restore install failed: ${tail(r.out, 6)}`)
+    return r.code === 0
   }
 }

@@ -1,9 +1,13 @@
 // 纯函数单测：工具改名、结果渲染、提示词挑选与截断、试启动判定、包名解析、环境白名单、平台映射。
 import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { childEnv } from '../src/engine/env.mjs'
 import { layout, nodePlatform } from '../src/engine/layout.mjs'
 import { judgeTrial, specName } from '../src/engine/plugins.mjs'
 import { sources } from '../src/engine/runtime.mjs'
+import { Sidecar } from '../src/engine/sidecar.mjs'
 import { promptText, renderResult, tanguToolName, thirdPartySections } from '../src/engine/tools.mjs'
 
 let n = 0
@@ -92,6 +96,24 @@ await it('platforms and layout', () => {
   assert.match(layout('/r', 'linux').nodeBin, /\/bin\/node$/)
   assert.deepEqual(sources('auto'), ['official', 'mirror'])
   assert.deepEqual(sources('mirror'), ['mirror'])
+})
+
+await it('a sidecar whose spawn fails asynchronously still stops at once (no hang)', async () => {
+  if (process.platform === 'win32') return
+  const root = await mkdtemp(join(tmpdir(), 'd2f-unit-'))
+  try {
+    const paths = layout(root)
+    await mkdir(paths.nodeBinDir, { recursive: true })
+    await writeFile(paths.nodeBin, '#!/bin/sh\n', { mode: 0o644 }) // 不可执行 → spawn 异步报 EACCES
+    const sc = new Sidecar(paths, { home: join(root, 'home') })
+    await assert.rejects(() => sc.start())
+    assert.equal(sc.state, 'failed')
+    const t0 = Date.now()
+    await sc.stop()
+    assert.ok(Date.now() - t0 < 500, `stop took ${Date.now() - t0} ms`)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 console.log(`check-unit: ${n} passed`)

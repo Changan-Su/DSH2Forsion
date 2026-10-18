@@ -62,7 +62,8 @@ const STRINGS = {
     forceAnyway: '强制安装（不建议）',
     acceptRisk: '接受风险并安装',
     removed: '已移除 {name}。',
-    rolledBack: '已撤销上一次改动。',
+    rolledBack: '已撤销上一次改动。被换下来的那份（包括之后改过的插件设置）存在数据目录的 backups/undone-* 里。',
+    rollbackFailed: '没撤销成功，快照还在：',
     nothingToRollBack: '没有可以撤销的改动。',
     pluginError: '出错',
     pluginOk: '已启用',
@@ -128,7 +129,8 @@ const STRINGS = {
     forceAnyway: 'Force install (not recommended)',
     acceptRisk: 'Accept the risk and install',
     removed: 'Removed {name}.',
-    rolledBack: 'Undid the last change.',
+    rolledBack: 'Undid the last change. The state it replaced, including plugin settings changed since, is kept in backups/undone-* in the data folder.',
+    rollbackFailed: 'Could not undo; the snapshot is kept:',
     nothingToRollBack: 'There is nothing to undo.',
     pluginError: 'Error',
     pluginOk: 'On',
@@ -464,7 +466,7 @@ function managePanel(el) {
           h('button', { class: 'd2f-btn danger', onclick: () => act(async () => { const r = await call('/plugins/remove', { method: 'POST', body: { name: p.name } }); result.replaceChildren(h('p', {}, r.status === 'removed' ? t('removed', { name: p.name }) : (r.message ?? r.status))) }) }, t('remove')))))
         : h('p', { class: 'd2f-muted' }, t('noPlugins')),
       h('div', { class: 'd2f-row' },
-        h('button', { class: 'd2f-btn', onclick: () => act(async () => { const r = await call('/plugins/rollback', { method: 'POST' }); result.replaceChildren(h('p', {}, r.status === 'rolled-back' ? t('rolledBack') : t('nothingToRollBack'))) }) }, t('rollback'))))
+        h('button', { class: 'd2f-btn', onclick: () => act(async () => { const r = await call('/plugins/rollback', { method: 'POST' }); result.replaceChildren(h('p', {}, r.status === 'rolled-back' ? t('rolledBack') : r.status === 'failed' ? `${t('rollbackFailed')} ${r.message ?? ''}` : t('nothingToRollBack'))) }) }, t('rollback'))))
 
     const installBtn = h('button', { class: 'd2f-btn primary', onclick: () => void runInstall(input.value.trim()) }, t('install'))
     if (!s.runtime?.installed || s.pluginJob) installBtn.disabled = true

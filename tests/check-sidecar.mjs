@@ -8,7 +8,7 @@
 //     从网上真装一遍运行时（约 1.1 GB），走界面上「下载并启动」那条路由。
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -28,7 +28,7 @@ const scratch = await mkdtemp(join(tmpdir(), 'dsh2forsion-e2e-'))
 const dataDir = join(scratch, 'plugin-data')
 await mkdir(dataDir, { recursive: true })
 if (!fresh) {
-  for (const sub of ['node', 'runtime']) await symlink(join(sourceRoot, sub), join(dataDir, sub), 'dir')
+  for (const sub of ['node', 'runtime']) await symlink(join(sourceRoot, sub), join(dataDir, sub), process.platform === 'win32' ? 'junction' : 'dir')
 }
 
 // tangu-agent 给引擎插件的那部分上下文
@@ -67,7 +67,7 @@ const waitFor = async (what, fn, ms) => {
 }
 const tool = name => meta.toolProvider.tools().find(t => t.name === name)
 
-const engine = (await import(pathToFileURL(join(pluginDir, 'dist/index.js')).href)).default
+const { default: engine, createPlugin } = await import(pathToFileURL(join(pluginDir, 'dist/index.js')).href)
 const fixture = join(repo, 'tests/fixtures/fixture-tool')
 const badShadow = join(repo, 'tests/fixtures/bad-shadow')
 const failsToStart = join(repo, 'tests/fixtures/fails-to-start')
@@ -165,6 +165,9 @@ try {
     assert.equal(tool('dsh__fixture_echo'), undefined)
     const back = await call('POST', '/plugins/rollback')
     assert.equal(back.status, 'rolled-back', JSON.stringify(back))
+    // 换下来的那份留着（不参与下一次回滚）
+    assert.ok(back.kept && (await readdir(join(dataDir, 'backups'))).some(d => d.startsWith('undone-')), JSON.stringify(back))
+    assert.equal((await call('POST', '/plugins/remove', { name: '--help' })).status, 'failed')
     const s = await call('GET', '/status')
     assert.equal(s.sidecar.state, 'running')
     assert.deepEqual(s.tools, ['fixture_echo'])
@@ -192,6 +195,26 @@ try {
     assert.doesNotThrow(() => process.kill(pid, 0))
     helper.kill('SIGKILL')
     await waitFor('orphaned DSH to exit', async () => { try { process.kill(pid, 0); return false } catch { return true } }, 15_000)
+  })
+
+  await it('turning the plugin off while DSH is still starting leaves nothing running', async () => {
+    const data2 = join(scratch, 'plugin-data-2')
+    await mkdir(data2, { recursive: true })
+    for (const sub of ['node', 'runtime']) await symlink(join(dataDir, sub), join(data2, sub), process.platform === 'win32' ? 'junction' : 'dir')
+    const routes2 = new Map()
+    const ctx2 = { ...ctx, paths: { pluginDir, dataDir: data2 }, registerPlugin: () => {}, log: () => {},
+      registerScopedRoutes: fn => fn({ get: (p, h) => routes2.set(`GET ${p}`, h), post: (p, h) => routes2.set(`POST ${p}`, h) }) }
+    const status2 = () => new Promise(resolve => routes2.get('GET /status')({}, { status() { return this }, json: resolve }))
+    const second = createPlugin()
+    await second.activate(ctx2) // 开着自动启动：后台开始建 profile、装桥、起 DSH
+    await sleep(300)
+    const t0 = Date.now()
+    await second.deactivate()
+    assert.ok(Date.now() - t0 < 5000, `deactivate took ${Date.now() - t0} ms`)
+    await sleep(8000) // 要是 start() 没看 disposed，DSH 会在这段时间里起来
+    const s = await status2()
+    assert.notEqual(s.sidecar.state, 'running', JSON.stringify(s.sidecar))
+    assert.equal(s.sidecar.pid, null)
   })
 
   await it('deactivate stops the sidecar within the limit', async () => {

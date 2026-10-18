@@ -94,7 +94,7 @@ export async function newestBackup(backupsDir) {
   try { entries = await readdir(backupsDir) } catch { return null }
   const dirs = []
   for (const e of entries) {
-    if (e === LAST_GOOD) continue
+    if (e === LAST_GOOD || e.startsWith('undone-')) continue
     try { if ((await stat(join(backupsDir, e))).isDirectory()) dirs.push(e) } catch { /* 忽略 */ }
   }
   dirs.sort()

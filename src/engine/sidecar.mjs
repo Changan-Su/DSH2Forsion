@@ -9,6 +9,7 @@ import { childEnv } from './env.mjs'
 
 const READY = /dsh web: (http:\/\/127\.0\.0\.1:\d+)\/\?token=(\S+)/
 const LOG_LIMIT = 400
+const BRIDGE_TIMEOUT_MS = 15_000
 
 export class Sidecar {
   /** @param {ReturnType<import('./layout.mjs').layout>} paths */
@@ -107,6 +108,8 @@ export class Sidecar {
         reject(new Error(this.error))
       }, READY_TIMEOUT_MS)
       child.once('error', error => {
+        // 异步的启动失败（EACCES、ENOENT…）只有 error、不会再有 exit：这里就把 child 放掉，stop() 才不会干等
+        if (this.child === child) this.child = null
         if (settled) return
         settled = true
         clearTimeout(timer)
@@ -131,22 +134,33 @@ export class Sidecar {
     })
   }
 
-  /** 有界停止：先 SIGTERM，等不到再 SIGKILL。 */
+  /** 有界停止：先 SIGTERM，等不到再 SIGKILL；SIGKILL 之后最多再等 2 秒，绝不无限期挂住。 */
   stop(graceMs = 4000) {
     const child = this.child
-    if (!child) { if (this.state !== 'failed') this.setState('stopped'); return Promise.resolve() }
+    const gone = !child || child.pid === undefined || child.exitCode !== null || child.signalCode !== null
+    if (gone) {
+      if (this.child === child) this.child = null
+      if (this.state !== 'failed') this.setState('stopped')
+      return Promise.resolve()
+    }
     return new Promise(resolve => {
+      let done = false
+      const finish = () => { if (done) return; done = true; clearTimeout(kill); clearTimeout(giveUp); if (this.child === child) this.child = null; this.setState('stopped'); resolve() }
       const kill = setTimeout(() => { try { child.kill('SIGKILL') } catch { /* 已退出 */ } }, graceMs)
-      child.once('exit', () => { clearTimeout(kill); this.setState('stopped'); resolve() })
-      try { child.kill('SIGTERM') } catch { clearTimeout(kill); resolve() }
+      const giveUp = setTimeout(finish, graceMs + 2000)
+      child.once('exit', finish)
+      try { child.kill('SIGTERM') } catch { finish() }
     })
   }
 
   /** 给桥发请求（带密钥）。 */
   async bridge(path, init = {}) {
     if (this.state !== 'running' || !this.base) throw new Error('DSH is not running')
+    // 不带 signal 的调用（工具表、提示词、外观）限时 15 秒：DSH 的事件循环卡住时别把调用方一起挂住。
+    // 工具执行带的是 Tangu 的 signal，由 Tangu 决定等多久
     const res = await fetch(`${this.base}/forsion-bridge${path}`, {
       ...init,
+      signal: init.signal ?? AbortSignal.timeout(BRIDGE_TIMEOUT_MS),
       headers: { 'content-type': 'application/json', 'x-dsh2forsion-secret': this.secret, ...(init.headers ?? {}) },
     })
     const body = await res.json().catch(() => ({}))
@@ -158,7 +172,7 @@ export class Sidecar {
   async rpc(method, args = {}) {
     if (this.state !== 'running' || !this.base) throw new Error('DSH is not running')
     if (!this.cookie || this.cookieFor !== this.base) {
-      const login = await fetch(`${this.base}/?token=${this.token}`, { redirect: 'manual' })
+      const login = await fetch(`${this.base}/?token=${this.token}`, { redirect: 'manual', signal: AbortSignal.timeout(BRIDGE_TIMEOUT_MS) })
       this.cookie = (login.headers.get('set-cookie') ?? '').split(';')[0]
       this.cookieFor = this.base
     }
@@ -166,6 +180,7 @@ export class Sidecar {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: this.base, cookie: this.cookie },
       body: JSON.stringify({ type: 'client-request', rpcId: `d2f-${Date.now()}`, method, payload: { args } }),
+      signal: AbortSignal.timeout(BRIDGE_TIMEOUT_MS),
     })
     const body = await res.json()
     if (!body?.result?.ok) throw new Error(body?.result?.error?.message ?? `rpc ${method} failed`)
