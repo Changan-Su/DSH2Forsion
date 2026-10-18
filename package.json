@@ -1,0 +1,19 @@
+{
+  "name": "dsh2forsion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run DeepSeek Harness plugins in Forsion",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "node tests/check-unit.mjs && node tests/check-renderer.mjs && node tests/check-build.mjs",
+    "test:sidecar": "node tests/check-sidecar.mjs",
+    "gen:baseline": "node tests/gen-baseline.mjs",
+    "gen:known": "node tests/gen-known.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10",
+    "happy-dom": "^15.11.7"
+  }
+}

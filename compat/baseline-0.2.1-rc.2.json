@@ -1,0 +1,16 @@
+{
+ "dsh": "0.2.1-rc.2",
+ "generatedAt": "2026-10-18",
+ "tools": [
+  "working_directory"
+ ],
+ "sections": [
+  "app:web-surface",
+  "deployment:persona-prefix",
+  "deployment:persona-suffix",
+  "harness:identity",
+  "harness:source",
+  "mcp-resource-servers",
+  "ui:deliverable-file-references"
+ ]
+}

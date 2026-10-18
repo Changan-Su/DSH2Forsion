@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Run the end-to-end sidecar test on macOS and Windows too'
+        type: boolean
+        default: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: plugin/ is committed up to date
+        run: git diff --exit-code -- plugin
+      - run: npm run check
+
+  # 真下载运行时（约 1.1 GB）、真起 DSH、真装插件。Linux 每次跑；macOS / Windows 手动触发时跑。
+  sidecar:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ github.event_name == 'workflow_dispatch' && inputs.platforms && fromJSON('["ubuntu-latest","macos-latest","windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:sidecar
+        env:
+          DSH2FORSION_FRESH: '1'

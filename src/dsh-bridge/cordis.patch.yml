@@ -1,0 +1,4 @@
+# DSH2Forsion bridge row (the Forsion engine half talks to it over /forsion-bridge)
+- insert:
+    - id: dsh2forsion-bridge
+      name: 'dsh2forsion-bridge'

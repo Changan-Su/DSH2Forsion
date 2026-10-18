@@ -1,0 +1,28 @@
+{
+  "id": "dsh2forsion",
+  "name": "DSH2Forsion",
+  "nameEn": "DSH2Forsion",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "minAppVersion": "2.13.4",
+  "isDesktopOnly": true,
+  "description": "在 Forsion 里运行 DeepSeek Harness（DSH）插件：DSH 的界面放进一个 Space，DSH 插件的工具交给 Tangu。兼容 DeepSeek Harness，非 DeepSeek 官方出品。",
+  "descriptionEn": "Run DeepSeek Harness (DSH) plugins in Forsion: the DSH interface lives in its own Space and the tools of DSH plugins are offered to Tangu. Compatible with DeepSeek Harness; not made or endorsed by DeepSeek.",
+  "main": "main.js",
+  "onboarding": {
+    "intro": "第一次打开 DSH Space 时要下载运行时（约 1.1 GB 磁盘），之后插件在 DSH Space 或本页安装。",
+    "steps": [
+      { "title": "打开 DSH Space", "description": "左侧 Ribbon 出现「DSH」。第一次打开会说明要下载什么、从哪里下载，你点了才开始。" },
+      { "title": "装插件", "description": "在本页输入 npm 包名安装：先在临时副本里试装、试启动，通过了才装进来。也可以在 DSH Space 的「插件」页里浏览。" },
+      { "title": "在 Tangu 里用", "description": "DSH 插件的工具以 dsh__ 开头出现在 Tangu 的工具表里，每次调用都会先问你。" }
+    ],
+    "en": {
+      "intro": "The first time you open the DSH Space it downloads the runtime (about 1.1 GB of disk). After that, install plugins from the DSH Space or from this page.",
+      "steps": [
+        { "title": "Open the DSH Space", "description": "DSH appears on the left Ribbon. The first time you open it, it explains what it will download and from where, and starts only when you click." },
+        { "title": "Install plugins", "description": "Enter an npm package name on this page. It is installed and started in a scratch copy first, and added only if that works. You can also browse the Plugins page in the DSH Space." },
+        { "title": "Use them in Tangu", "description": "Tools from DSH plugins appear in Tangu with names starting with dsh__. Tangu asks you before every call." }
+      ]
+    }
+  }
+}

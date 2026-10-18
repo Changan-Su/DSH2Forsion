@@ -1,0 +1,12 @@
+{
+  "name": "dsh2forsion-fixture-bad-shadow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Test fixture: bundles an old @deepseek-ai/dsh-tools as a regular dependency, which overrides the runtime copy (reproduces the M0 random-30 #116 failure without third-party code)",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js", "./package.json": "./package.json", "./cordis.patch.yml": "./cordis.patch.yml" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "dependencies": { "@deepseek-ai/dsh-tools": "0.1.0-rc.6" },
+  "license": "MIT"
+}

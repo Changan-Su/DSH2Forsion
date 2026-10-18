@@ -1,0 +1,15 @@
+{
+  "id": "dsh2forsion-dsh",
+  "name": { "zh": "DSH", "en": "DSH" },
+  "icon": "boxes",
+  "iconFile": "icon.svg",
+  "version": "0.1.0",
+  "layout": {
+    "main": [
+      { "type": "plugin:dsh2forsion:space", "mainPage": true, "pinned": true }
+    ],
+    "left": [],
+    "right": []
+  },
+  "requires": { "views": ["plugin:dsh2forsion:space"] }
+}
