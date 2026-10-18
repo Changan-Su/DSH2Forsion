@@ -30,7 +30,7 @@ Copy the contents of `plugin/` into Forsion's `plugins/dsh2forsion/` folder and 
 
 装好后：
 
-1. 左侧 Ribbon 出现 **DSH**（Space 多时在 Ribbon 的「更多」里）。第一次打开会说明要下载什么（官方 Node 与 DSH 运行时共约 300 MB，装好后占约 1.1 GB 磁盘）、从哪下载（nodejs.org / npmjs，失败退国内镜像 npmmirror），点了才开始。下载加安装：Linux / macOS 的测试机约 1.5 分钟，Windows 的 CI 机器约 12 分钟（npm 在 Windows 上装 600 多个包慢）。
+1. 左侧 Ribbon 出现 **DSH**（Space 多时在 Ribbon 的「更多」里）。第一次打开会说明要下载什么（官方 Node 与 DSH 运行时共约 300 MB，装好后占约 1.1 GB 磁盘）、从哪下载（nodejs.org / npmjs，失败退国内镜像 npmmirror），点了才开始。下载加安装：Linux / macOS 的测试机约 1.5 分钟，Windows 的 CI 机器 12–16 分钟（npm 在 Windows 上装 600 多个包慢）。
 2. 在 **设置 → DSH2Forsion** 里输入 npm 包名装插件，或在 DSH Space 的插件页里浏览。
 3. 插件的工具出现在 Tangu 里，名字以 `dsh__` 开头。
 
