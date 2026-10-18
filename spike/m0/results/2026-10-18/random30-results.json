@@ -1,0 +1,955 @@
+{
+ "101": {
+  "rank": 101,
+  "name": "dsh-apradar",
+  "version": "0.1.2",
+  "category": null,
+  "install": {
+   "ms": 3438,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4610,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 441044,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "102": {
+  "rank": 102,
+  "name": "dsh-multimedia-webui-input",
+  "version": "0.1.0",
+  "category": null,
+  "install": {
+   "ms": 3952,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3809,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 445340,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "103": {
+  "rank": 103,
+  "name": "@guojin-ai/dsh-plugin-guard",
+  "version": "0.2.0",
+  "category": null,
+  "install": {
+   "ms": 1839,
+   "refusal": "dsh: installation rejected: Plugin @guojin-ai/dsh-plugin-guard@0.2.0 is incompatible with dsh 0.2.1-rc.2: requirements {\"@deepseek-ai/dsh-api-remotes\":\"^0.1.2-rc.1\",\"@deepseek-ai/dsh-client-locale\":\"^0.1.2-rc.1\",\"@deepseek-ai/dsh-client-ui-renderer\":\"^0.1.2-rc.1\",\"@deepseek-ai/dsh-client-ui-settings\":\"^0.1.2-rc.1\",\"@deepseek-ai/dsh-client-ui-slots\":\"^0.1.2-rc.1\",\"@deepseek-ai/dsh-llm\":\"^0.1.2-rc.1\",\"@deepseek-ai/dsh-typert-protocol\":\"^0.1.2-rc.1\"}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for @guojin-ai/dsh-plugin-guard@0.2.0 on dsh 0.2.1-rc.2 with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.\ndsh: nothing was installed.\ndsh: to accept the risk, run: dsh plugin --profile p allow-version @guojin-ai/dsh-plugin-guard@0.2.0 --dsh-version 0.2.1-rc.2 --accept-risk\ndsh: plugin command failed; diagnostics: <DSH_HOME>/profiles/p/.plugin-manager/logs/operation-D9Tvgi/pnpm.log",
+   "status": "installed-with-exemption"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4208,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "HARNESS Failed to load plugins @guojin-ai/dsh-plugin-guard web boot: 1 entry did not activate @guojin-ai/dsh-plugin-guard: import failed: client-modules: could ",
+   "uiErrors": [
+    "pageerror: client-modules: duplicate factory registration for \"dsh-plugin-guard\" (bundle executed twice without invalidate?)",
+    "console.error: Error: web boot: 1 entry did not activate\n@guojin-ai/dsh-plugin-guard: import failed: client-modules: could not load \"@guojin-ai/dsh-plugin-guard\": plugins/??@deepseek-ai/dsh-client-ui-trajectory/client.js,@deepseek-ai/dsh-api-remote-access/client.js,@deepseek-ai/dsh-session-log-expor",
+    "pageerror: client-modules: duplicate factory registration for \"dsh-plugin-guard\" (bundle executed twice without invalidate?)"
+   ],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 448440,
+   "exitCode": 0,
+   "logIssues": [
+    "dsh: warning: 1 entry did not activate",
+    "dsh-plugin-guard (@guojin-ai/dsh-plugin-guard): Error: typert: dsh-plugin-guard#guard/getReport result strict codec has no create() factory"
+   ]
+  }
+ },
+ "104": {
+  "rank": 104,
+  "name": "dsh-tts-speakout",
+  "version": "0.3.2",
+  "category": null,
+  "install": {
+   "ms": 3929,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4814,
+   "tools": [
+    "dsh_speak",
+    "dsh_tts_status"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 2
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 446352,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "105": {
+  "rank": 105,
+  "name": "safer-dsh-market",
+  "version": "0.10.1",
+  "category": null,
+  "install": {
+   "ms": 3719,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4410,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Safe Market Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to s",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 450044,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "106": {
+  "rank": 106,
+  "name": "@scorehub/tiky-dsh",
+  "version": "0.1.0-beta.1",
+  "category": null,
+  "install": {
+   "ms": 6712,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 5009,
+   "tools": [
+    "list_mcp_resources",
+    "list_mcp_resource_templates",
+    "read_mcp_resource",
+    "mcp__scorehub__authorize",
+    "mcp__scorehub__status"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": false,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 453372,
+   "exitCode": 0,
+   "logIssues": [
+    "Warning: fetchRemoteTools failed: fetch failed",
+    "Warning: Could not fetch remote tools on startup: fetch failed. Retrying on first ListTools request.",
+    "Warning: fetchRemoteTools failed: fetch failed"
+   ]
+  }
+ },
+ "107": {
+  "rank": 107,
+  "name": "@ne-ilyxa/dsh-session-drafts",
+  "version": "0.7.0",
+  "category": null,
+  "install": {
+   "ms": 3986,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4012,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 440404,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "108": {
+  "rank": 108,
+  "name": "dsh-chat-image-lightbox",
+  "version": "1.7.6",
+  "category": null,
+  "install": {
+   "ms": 5246,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4207,
+   "tools": [
+    "display_image"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 456040,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "109": {
+  "rank": 109,
+  "name": "@fish-under-sea/dsh-approval-guide",
+  "version": "0.2.2",
+  "category": null,
+  "install": {
+   "ms": 3615,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3807,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 437320,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "110": {
+  "rank": 110,
+  "name": "@csadi/csadi-ai-base",
+  "version": "0.1.4",
+  "category": null,
+  "install": {
+   "ms": 4072,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4008,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet ? More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Previ",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 435000,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "111": {
+  "rank": 111,
+  "name": "dsh-free-vision",
+  "version": "1.0.8",
+  "category": null,
+  "install": {
+   "ms": 5014,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4208,
+   "tools": [
+    "show_image"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 444832,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "112": {
+  "rank": 112,
+  "name": "dsh-discussions-radar",
+  "version": "0.1.0",
+  "category": null,
+  "install": {
+   "ms": 1613,
+   "refusal": "dsh: installation rejected: Plugin dsh-discussions-radar@0.1.0 is incompatible with dsh 0.2.1-rc.2: requirements {\"@deepseek-ai/dsh-tools\":\"^0.1.0-rc.6\"}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for dsh-discussions-radar@0.1.0 on dsh 0.2.1-rc.2 with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.\ndsh: nothing was installed.\ndsh: to accept the risk, run: dsh plugin --profile p allow-version dsh-discussions-radar@0.1.0 --dsh-version 0.2.1-rc.2 --accept-risk\ndsh: plugin command failed; diagnostics: <DSH_HOME>/profiles/p/.plugin-manager/logs/operation-o2LbtE/pnpm.log",
+   "status": "installed-with-exemption"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4609,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": false,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 439136,
+   "exitCode": 0,
+   "logIssues": [
+    "dsh: warning: 1 entry did not activate",
+    "discussions-radar (dsh-discussions-radar): Error: dsh-discussions-radar: resolved @deepseek-ai/dsh-tools 0.2.1-rc.2, but this plugin is tested with ^0.1.0-rc.6. Upgrade DeepSeek Harness to 0.1.0-rc.6 or later, then reinstall this plugin."
+   ]
+  }
+ },
+ "113": {
+  "rank": 113,
+  "name": "dsh-fnos-advanced",
+  "version": "0.3.0",
+  "category": null,
+  "install": {
+   "ms": 3366,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4207,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 435932,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "114": {
+  "rank": 114,
+  "name": "deepseek-harness-sentinel",
+  "version": "0.4.4",
+  "category": null,
+  "install": {
+   "ms": 3559,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4008,
+   "tools": [
+    "sentinel_scan",
+    "sentinel_scan_profile",
+    "sentinel_audit_package"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": false,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 448412,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "115": {
+  "rank": 115,
+  "name": "@muou000/dsh-memory",
+  "version": "0.1.1",
+  "category": null,
+  "install": {
+   "ms": 1848,
+   "refusal": "dsh: installation rejected: Plugin @muou000/dsh-memory@0.1.1 is incompatible with dsh 0.2.1-rc.2: requirements {\"@deepseek-ai/dsh-agent\":\"^0.1.1-rc.2 || ^0.1.2-alpha.1\",\"@deepseek-ai/dsh-llm\":\"^0.1.1-rc.2 || ^0.1.2-alpha.1\",\"@deepseek-ai/dsh-session\":\"^0.1.1-rc.2 || ^0.1.2-alpha.1\",\"@deepseek-ai/dsh-session-persistence\":\"^0.1.1-rc.2 || ^0.1.2-alpha.1\",\"@deepseek-ai/dsh-tools\":\"^0.1.1-rc.2 || ^0.1.2-alpha.1\"}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for @muou000/dsh-memory@0.1.1 on dsh 0.2.1-rc.2 with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.\ndsh: nothing was installed.\ndsh: to accept the risk, run: dsh plugin --profile p allow-version @muou000/dsh-memory@0.1.1 --dsh-version 0.2.1-rc.2 --accept-risk\ndsh: plugin command failed; diagnostics: <DSH_HOME>/profiles/p/.plugin-manager/logs/operation-SFP0h9/pnpm.log",
+   "status": "installed-with-exemption"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4007,
+   "tools": [
+    "memory_search",
+    "memory_read",
+    "memory_propose",
+    "memory_feedback"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": false,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 448228,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "116": {
+  "rank": 116,
+  "name": "@jhp830901/dsh-memoria-extra",
+  "version": "0.1.0",
+  "category": null,
+  "install": {
+   "ms": 4649,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "no-ready",
+   "exitCode": 1,
+   "logIssues": [
+    "dsh: startup failed: 1 required plugin did not activate",
+    "Failed plugins (1):",
+    "    failed to import: file://<DSH_HOME>/profiles/p/node_modules/@deepseek-ai/dsh-tools/lib/index.js:4",
+    "    import { CallId, HarnessError, assertNever, createUserMessage, deepFreeze } from \"@deepseek-ai/dsh-llm\";",
+    "    SyntaxError: The requested module '@deepseek-ai/dsh-llm' does not provide an export named 'CallId'",
+    "  Plugin                     Missing services"
+   ]
+  }
+ },
+ "117": {
+  "rank": 117,
+  "name": "@dsh-xhl/dsh-git-gui",
+  "version": "0.2.0",
+  "category": null,
+  "install": {
+   "ms": 2016,
+   "refusal": "dsh: installation rejected: Plugin @dsh-xhl/dsh-git-gui@0.2.0 is incompatible with dsh 0.2.1-rc.2: requirements {\"@deepseek-ai/dsh-llm\":\"^0.1.0-rc.6\",\"@deepseek-ai/dsh-typert-protocol\":\"^0.1.0-rc.6\"}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for @dsh-xhl/dsh-git-gui@0.2.0 on dsh 0.2.1-rc.2 with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.\ndsh: nothing was installed.\ndsh: to accept the risk, run: dsh plugin --profile p allow-version @dsh-xhl/dsh-git-gui@0.2.0 --dsh-version 0.2.1-rc.2 --accept-risk\ndsh: plugin command failed; diagnostics: <DSH_HOME>/profiles/p/.plugin-manager/logs/operation-Cvcanm/pnpm.log",
+   "status": "installed-with-exemption"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4209,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 439376,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "118": {
+  "rank": 118,
+  "name": "dsh-context-mode",
+  "version": "0.5.3",
+  "category": null,
+  "install": {
+   "ms": 1708,
+   "refusal": "dsh: installation rejected: Plugin dsh-context-mode@0.5.3 is incompatible with dsh 0.2.1-rc.2: requirements {\"@deepseek-ai/dsh-llm\":\"^0.1.5-rc.2\",\"@deepseek-ai/dsh-system-prompt\":\"^0.1.5-rc.2\",\"@deepseek-ai/dsh-tools\":\"^0.1.5-rc.2\"}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for dsh-context-mode@0.5.3 on dsh 0.2.1-rc.2 with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.\ndsh: nothing was installed.\ndsh: to accept the risk, run: dsh plugin --profile p allow-version dsh-context-mode@0.5.3 --dsh-version 0.2.1-rc.2 --accept-risk\ndsh: plugin command failed; diagnostics: <DSH_HOME>/profiles/p/.plugin-manager/logs/operation-IlvvBP/pnpm.log",
+   "status": "installed-with-exemption"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3812,
+   "tools": [
+    "ctx_execute",
+    "ctx_execute_file",
+    "ctx_index",
+    "ctx_search",
+    "ctx_fetch_and_index",
+    "ctx_batch_execute",
+    "ctx_upgrade",
+    "ctx_purge"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": false,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 446036,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "119": {
+  "rank": 119,
+  "name": "@q253595422/dsh-imagegen-video",
+  "version": "1.7.8",
+  "category": null,
+  "install": {
+   "ms": 4256,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4010,
+   "tools": [
+    "generate_image",
+    "edit_image",
+    "get_image_generation_task",
+    "cancel_image_generation_task",
+    "generate_video",
+    "generate_video_from_image",
+    "get_video_generation_task",
+    "cancel_video_generation_task"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "Session Image New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 454596,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "120": {
+  "rank": 120,
+  "name": "dsh-trae-skin",
+  "version": "0.2.0",
+  "category": null,
+  "install": {
+   "ms": 3533,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4008,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start DEEPSEE",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 445792,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "121": {
+  "rank": 121,
+  "name": "@mkaliezz/dsh-test-runner",
+  "version": "0.2.2",
+  "category": null,
+  "install": {
+   "ms": 3904,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4010,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": false,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 481520,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "122": {
+  "rank": 122,
+  "name": "@inventec/dsh-copilot-auth",
+  "version": "1.2.21",
+  "category": null,
+  "install": {
+   "ms": 4141,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3808,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 439760,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "123": {
+  "rank": 123,
+  "name": "dsh-opencode-go-oauth",
+  "version": "0.1.1",
+  "category": null,
+  "install": {
+   "ms": 3682,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4206,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 455532,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "124": {
+  "rank": 124,
+  "name": "dsh-chat-locator",
+  "version": "1.5.1",
+  "category": null,
+  "install": {
+   "ms": 3673,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4207,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 435920,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "125": {
+  "rank": 125,
+  "name": "dsh-ui-dafeng-customizer",
+  "version": "0.1.3",
+  "category": null,
+  "install": {
+   "ms": 3949,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3809,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 437216,
+   "exitCode": 0,
+   "logIssues": [
+    "dsh: warning: 1 entry did not activate",
+    "dsh-ui-dafeng-customizer (dsh-ui-dafeng-customizer): TypeError: settings.register is not a function"
+   ]
+  }
+ },
+ "126": {
+  "rank": 126,
+  "name": "dsh-billing-badge",
+  "version": "0.1.4",
+  "category": null,
+  "install": {
+   "ms": 3779,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4206,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 433100,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "127": {
+  "rank": 127,
+  "name": "@taontech/dsh-git",
+  "version": "0.1.2",
+  "category": null,
+  "install": {
+   "ms": 4769,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4008,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "HARNESS Failed to load plugins web boot: 1 entry did not activate @taontech/dsh-git: pending (waiting for service: conversationViews)",
+   "uiErrors": [
+    "console.error: Error: web boot: 1 entry did not activate\n@taontech/dsh-git: pending (waiting for service: conversationViews)\n    at bZ (http://127.0.0.1:41387/assets/index-CN7NIWNw.js:188:62352)\n    at kZ (http://127.0.0.1:41387/assets/index-CN7NIWNw.js:188:61816)\n    at async TZ.run (http://127.0.0"
+   ],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 437712,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "128": {
+  "rank": 128,
+  "name": "relay-dsh-plugin-files",
+  "version": "0.2.2",
+  "category": null,
+  "install": {
+   "ms": 1582,
+   "refusal": "dsh: installation rejected: Plugin relay-dsh-plugin-files@0.2.2 is incompatible with dsh 0.2.1-rc.2: requirements {\"@deepseek-ai/dsh-typert-protocol\":\">=0.1.1-rc.2 <0.1.2-0 || >=0.1.2-alpha.2 <0.1.3-0\"}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for relay-dsh-plugin-files@0.2.2 on dsh 0.2.1-rc.2 with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.\ndsh: nothing was installed.\ndsh: to accept the risk, run: dsh plugin --profile p allow-version relay-dsh-plugin-files@0.2.2 --dsh-version 0.2.1-rc.2 --accept-risk\ndsh: plugin command failed; diagnostics: <DSH_HOME>/profiles/p/.plugin-manager/logs/operation-zKeON3/pnpm.log",
+   "status": "installed-with-exemption"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4208,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 2
+   },
+   "clientInBootGraph": true,
+   "uiText": "HARNESS Failed to load plugins web boot: 23 entries did not activate @deepseek-ai/dsh-client-ui-open-in-app: pending (waiting for service: layout) @deepseek-ai/",
+   "uiErrors": [
+    "console.error: Error: web boot: 23 entries did not activate\n@deepseek-ai/dsh-client-ui-open-in-app: pending (waiting for service: layout)\n@deepseek-ai/dsh-client-ui-sidebar: pending (waiting for services: layout, uiWorkspace)\n@deepseek-ai/dsh-client-ui-sidebar-right: pending (waiting for service: la",
+    "console.error: [cordis-client-runner] syncing inspect providers failed: Error: gateway/definition-unavailable: typert gateway: dynamicCordisRunner/syncInspectManifest: its strict definition was withdrawn and SRC fallback is forbidden\n    at Object.sync (http://127.0.0.1:43513/plugins/??@deepseek-ai/",
+    "console.error: [ui-cordis] reading the Cordis inventory failed: Error: gateway/definition-unavailable: typert gateway: dynamicCordisRunner/inventory: its strict definition was withdrawn and SRC fallback is forbidden\n    at Object.inventory (http://127.0.0.1:43513/plugins/??@deepseek-ai/dsh-api-gatew",
+    "console.error: [session-controller] control stream failed: RemoteError: typert gateway: session/control: its strict definition was withdrawn and SRC fallback is forbidden\n    at RemoteStreamMuxClient.open (http://127.0.0.1:43513/plugins/??@deepseek-ai/dsh-api-gateway/client.js,@deepseek-ai/dsh-clien",
+    "console.error: [ui-cordis] reading the Cordis inventory failed: Error: gateway/definition-unavailable: typert gateway: dynamicCordisRunner/inventory: its strict definition was withdrawn and SRC fallback is forbidden\n    at Object.inventory (http://127.0.0.1:43513/plugins/??@deepseek-ai/dsh-api-gatew",
+    "console.error: [cordis-client-runner] syncing inspect providers failed: Error: gateway/definition-unavailable: typert gateway: dynamicCordisRunner/syncInspectManifest: its strict definition was withdrawn and SRC fallback is forbidden\n    at Object.sync (http://127.0.0.1:43513/plugins/??@deepseek-ai/"
+   ],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 446988,
+   "exitCode": 0,
+   "logIssues": [
+    "dsh: warning: 2 entries did not activate",
+    "typert-loader (@deepseek-ai/dsh-typert-loader): AggregateError: typert-loader: 1 typert contributor(s) failed to register:",
+    "Error: typert-loader: relay-dsh-plugin-files invocation \"relay-dsh-plugin-files#workspace/list\" parameter codec has no create() factory",
+    "relay-files-workbench-host (relay-dsh-plugin-workbench): failed to import: Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'relay-dsh-plugin-workbench' imported from <DSH_HOME>/profiles/p/"
+   ]
+  }
+ },
+ "129": {
+  "rank": 129,
+  "name": "@goodandready/dsh-tts",
+  "version": "0.4.34",
+  "category": null,
+  "install": {
+   "ms": 3824,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3806,
+   "tools": [
+    "speak_text"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 449720,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "130": {
+  "rank": 130,
+  "name": "@liuhange/dsh-data-asset-attestation",
+  "version": "3.1.4",
+  "category": null,
+  "install": {
+   "ms": 2074,
+   "refusal": "dsh: installation rejected: Plugin @liuhange/dsh-data-asset-attestation@3.1.4 is incompatible with dsh 0.2.1-rc.2: requirements {\"@deepseek-ai/dsh-tools\":\"0.0.1-rc.1\"}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for @liuhange/dsh-data-asset-attestation@3.1.4 on dsh 0.2.1-rc.2 with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.\ndsh: nothing was installed.\ndsh: to accept the risk, run: dsh plugin --profile p allow-version @liuhange/dsh-data-asset-attestation@3.1.4 --dsh-version 0.2.1-rc.2 --accept-risk\ndsh: plugin command failed; diagnostics: <DSH_HOME>/profiles/p/.plugin-manager/logs/operation-k78sDu/pnpm.log",
+   "status": "version-refused",
+   "log": "+ dsh2forsion-bridge dsh2forsion-bridge@file:../../../../../../home/user/DSH2Forsion/spike/m0/dsh-bridge\nDone in 2.9s using pnpm v11.28.6\ndsh: installation rejected: Cannot validate installed package @liuhange/dsh-data-asset-attestation: Error: dsh: failed to parse overlay <DSH_HOME>/profiles/p/node_modules/@liuhange/dsh-data-asset-attestation/cordis.patch.yml: YAMLException: bad indentation of a mapping entry (4:9)\n 1 | # Cordis Framework Patch Declaration for ...\n 2 | # This file declares the plugin's runtim ...\n 3 | # Used by DSH plugin manager to apply fr ...\n 4 | plugin: @liuhange/dsh-data-asset-attestation\n-------------^\n 5 | version: \"3.1.3\"\n 6 | patch:\ndsh: restored package.json, pnpm-lock.yaml, and node_modules.\ndsh: plugin command failed; diagnostics: <DSH_HOME>/profiles/p/.plugin-manager/logs/operation-xez5bN/pnpm.log"
+  }
+ }
+}

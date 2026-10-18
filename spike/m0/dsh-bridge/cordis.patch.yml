@@ -1,0 +1,4 @@
+# DSH2Forsion M0 bridge row
+- insert:
+    - id: dsh2forsion-bridge
+      name: 'dsh2forsion-bridge'

@@ -1,0 +1,956 @@
+{
+ "1": {
+  "rank": 1,
+  "name": "billion-context",
+  "version": "0.1.201",
+  "category": "e",
+  "install": {
+   "ms": 10031,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4416,
+   "tools": [
+    "compress",
+    "decompress",
+    "search_context",
+    "acp_status",
+    "acp_cache",
+    "acp_read_original_image"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 477608,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "2": {
+  "rank": 2,
+  "name": "dshmarket",
+  "version": "1.66.39",
+  "category": "h",
+  "install": {
+   "ms": 4121,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4212,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 446548,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "3": {
+  "rank": 3,
+  "name": "@michengai/dsh-codex-ui",
+  "version": "1.1.42",
+  "category": "f",
+  "install": {
+   "ms": 5700,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4015,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 2
+   },
+   "clientInBootGraph": true,
+   "uiText": "New task Extensions Experts Skills Plugin manager Connectors Scheduled tasks IM Assistant Automation tasks Pinned Drag a project here to pin it Projects No proj",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 487144,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "4": {
+  "rank": 4,
+  "name": "dsh-better-sidebar",
+  "version": "0.28.0",
+  "category": "f",
+  "install": {
+   "ms": 8866,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4209,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 445540,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "5": {
+  "rank": 5,
+  "name": "@michengai/dsh-skills-manager",
+  "version": "1.2.6",
+  "category": "c",
+  "install": {
+   "ms": 4433,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3808,
+   "tools": [
+    "create_skill"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 449140,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "6": {
+  "rank": 6,
+  "name": "dsh-whale-widget",
+  "version": "0.4.2",
+  "category": "f",
+  "install": {
+   "ms": 4094,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4007,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": false,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start DeepSee",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 444096,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "7": {
+  "rank": 7,
+  "name": "@michengai/dsh-archive-manager",
+  "version": "1.1.2",
+  "category": "e",
+  "install": {
+   "ms": 3917,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4815,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 447532,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "8": {
+  "rank": 8,
+  "name": "@michengai/dsh-agency-agents",
+  "version": "1.2.2",
+  "category": "c",
+  "install": {
+   "ms": 4956,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4213,
+   "tools": [
+    "list_experts",
+    "summon_expert",
+    "summon_experts",
+    "list_expert_teams",
+    "get_expert_team",
+    "summon_expert_team"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 2
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 458140,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "9": {
+  "rank": 9,
+  "name": "dsh-context",
+  "version": "0.73.2",
+  "category": "e",
+  "install": {
+   "ms": 3484,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4209,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Context Insights Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 450924,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "10": {
+  "rank": 10,
+  "name": "@linxin666/dsh-client-ui-skill-explorer",
+  "version": "0.4.7",
+  "category": "f",
+  "install": {
+   "ms": 3777,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3808,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Skill Center Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to ",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 446088,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "11": {
+  "rank": 11,
+  "name": "@linxin666/dsh-pet",
+  "version": "0.4.7",
+  "category": "f",
+  "install": {
+   "ms": 4440,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3808,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 442048,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "12": {
+  "rank": 12,
+  "name": "@michengai/dsh-im-connect",
+  "version": "1.0.4",
+  "category": "g",
+  "install": {
+   "ms": 6736,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4207,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Tasks Channels Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace t",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 440372,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "13": {
+  "rank": 13,
+  "name": "@linxin666/dsh-remote-web-ui",
+  "version": "0.4.7",
+  "category": "i",
+  "install": {
+   "ms": 4979,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4211,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 441244,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "14": {
+  "rank": 14,
+  "name": "@linxin666/dsh-client-ui-task-board",
+  "version": "0.4.7",
+  "category": "k",
+  "install": {
+   "ms": 3854,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4008,
+   "tools": [
+    "task_board_list",
+    "task_board_get",
+    "task_board_create",
+    "task_board_update",
+    "task_board_set_parent",
+    "task_board_run",
+    "task_board_manage",
+    "task_board_schedule"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Task Board Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to st",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 454704,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "15": {
+  "rank": 15,
+  "name": "@linxin666/dsh-client-ui-git-graph",
+  "version": "0.4.7",
+  "category": "f",
+  "install": {
+   "ms": 4236,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4608,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 445740,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "16": {
+  "rank": 16,
+  "name": "@michengai/dsh-automation",
+  "version": "1.0.1",
+  "category": "k",
+  "install": {
+   "ms": 3953,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4607,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Tasks Scheduled Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace ",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 453664,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "17": {
+  "rank": 17,
+  "name": "@linxin666/dsh-client-ui-skin-center",
+  "version": "0.4.7",
+  "category": "f",
+  "install": {
+   "ms": 4527,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4409,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 455516,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "18": {
+  "rank": 18,
+  "name": "@linxin666/dsh-liangshen",
+  "version": "0.4.7",
+  "category": "c",
+  "install": {
+   "ms": 3855,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4209,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 438972,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "19": {
+  "rank": 19,
+  "name": "@linxin666/dsh-ssh",
+  "version": "0.4.7",
+  "category": "i",
+  "install": {
+   "ms": 5524,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4410,
+   "tools": [
+    "ssh_list",
+    "ssh_exec",
+    "ssh_upload",
+    "ssh_download",
+    "ssh_tunnel",
+    "ssh_cluster"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks SSH Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Pre",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 489028,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "20": {
+  "rank": 20,
+  "name": "@linxin666/dsh-web-all",
+  "version": "0.4.7",
+  "category": "j",
+  "install": {
+   "ms": 5377,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4611,
+   "tools": [
+    "task_board_list",
+    "task_board_get",
+    "task_board_create",
+    "task_board_update",
+    "task_board_set_parent",
+    "task_board_run",
+    "task_board_manage",
+    "task_board_schedule",
+    "task_board_github_list",
+    "task_board_github_get",
+    "task_board_github_refresh",
+    "task_board_github_create_pr",
+    "task_board_github_link_pr",
+    "task_board_github_comment",
+    "task_board_github_close_issue",
+    "task_board_github_setup",
+    "task_board_github_repositories"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 20
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Task Board Workspaces No sessions yet Today spend ¥0.00 No usage yet today Updated 04:39 PM More Into the Unknown Preview C",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 489256,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "21": {
+  "rank": 21,
+  "name": "@linxin666/dsh-client-ui-web-ui-settings",
+  "version": "0.4.7",
+  "category": "f",
+  "install": {
+   "ms": 2922,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4006,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 443348,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "22": {
+  "rank": 22,
+  "name": "@linxin666/dsh-client-ui-market",
+  "version": "0.4.7",
+  "category": "h",
+  "install": {
+   "ms": 3166,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4207,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 440136,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "23": {
+  "rank": 23,
+  "name": "@linxin666/dsh-client-ui-plugin-manager",
+  "version": "0.4.7",
+  "category": "h",
+  "install": {
+   "ms": 2809,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3806,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 438808,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "24": {
+  "rank": 24,
+  "name": "@linxin666/dsh-client-ui-community-plugins",
+  "version": "0.4.7",
+  "category": "j",
+  "install": {
+   "ms": 3213,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3806,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": false,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 442696,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "25": {
+  "rank": 25,
+  "name": "dsh-cost-meter",
+  "version": "1.9.7",
+  "category": "f",
+  "install": {
+   "ms": 4034,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4608,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet Today ¥0 Off-peak · Peak in 8h 20m A lighter sidebar × Simple display leaves more room for conve",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 462048,
+   "exitCode": 0,
+   "logIssues": [
+    "[dsh-cost-meter] OpenRouter 价格刷新失败(保留本地价格): fetch failed"
+   ]
+  }
+ },
+ "26": {
+  "rank": 26,
+  "name": "dsh-plugin-model-proxy",
+  "version": "0.1.6",
+  "category": "b",
+  "install": {
+   "ms": 4070,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4611,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 459400,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "27": {
+  "rank": 27,
+  "name": "@linxin666/dsh-usage",
+  "version": "0.4.7",
+  "category": "f",
+  "install": {
+   "ms": 2741,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 4008,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet Today spend ¥0.00 No usage yet today Updated 04:41 PM More Into the Unknown Preview Choose works",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 448048,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "28": {
+  "rank": 28,
+  "name": "@linxin666/dsh-session-archive",
+  "version": "0.4.7",
+  "category": "e",
+  "install": {
+   "ms": 2663,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3407,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 480896,
+   "exitCode": null,
+   "logIssues": []
+  }
+ },
+ "29": {
+  "rank": 29,
+  "name": "@liustack/modlens",
+  "version": "3.27.1",
+  "category": "a",
+  "install": {
+   "ms": 2874,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3606,
+   "tools": [
+    "modlens_read_image"
+   ],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 451500,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ },
+ "30": {
+  "rank": 30,
+  "name": "@linxin666/dsh-client-ui-model-capabilities",
+  "version": "0.4.6",
+  "category": "b",
+  "install": {
+   "ms": 3911,
+   "status": "installed"
+  },
+  "probe": {
+   "boot": "ready",
+   "bootMs": 3806,
+   "tools": [],
+   "bundle": {
+    "enabled": true,
+    "error": null,
+    "rows": 1
+   },
+   "clientInBootGraph": true,
+   "uiText": "New Session Plugins Automation tasks Workspaces No sessions yet More Into the Unknown Preview Choose workspace Standard mode Choose a workspace to start Preview",
+   "uiErrors": [],
+   "sockets": [
+    "open /api/remote.mux"
+   ],
+   "disconnected": false,
+   "rssKb": 445320,
+   "exitCode": 0,
+   "logIssues": []
+  }
+ }
+}

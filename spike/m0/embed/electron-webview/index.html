@@ -1,0 +1,8 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; worker-src 'self' blob:; connect-src 'self' amadeus-asset: blob: data: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https: wss:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: amadeus-asset: https:; media-src 'self' blob: amadeus-asset: https:; frame-src 'self' amadeus-asset: https://www.youtube-nocookie.com https://player.bilibili.com http://127.0.0.1:* http://localhost:* http://*.localhost:*;" />
+<title>forsion-like renderer</title></head>
+<body style="margin:0;background:#f4f4f2;font:13px sans-serif">
+<div style="padding:6px 10px">Forsion 宿主页（复用 desktop/frontend/index.html 的 CSP）· 下方是 &lt;webview&gt; 里的 DSH Space</div>
+<webview id="w" partition="persist:dsh2forsion" style="width:1200px;height:740px;display:inline-flex"></webview>
+<script>const w=document.getElementById('w');w.src=decodeURIComponent(location.hash.slice(1));</script>
+</body></html>

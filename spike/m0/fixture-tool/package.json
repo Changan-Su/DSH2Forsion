@@ -1,0 +1,12 @@
+{
+  "name": "dsh2forsion-fixture-tool",
+  "version": "0.0.0-m0",
+  "private": true,
+  "description": "DSH2Forsion M0 fixture: one third-party tool plus one system prompt section",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js", "./package.json": "./package.json", "./cordis.patch.yml": "./cordis.patch.yml" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "peerDependencies": { "@deepseek-ai/cordis": "~4.0.5", "@deepseek-ai/dsh-tools": "*" },
+  "license": "MIT"
+}

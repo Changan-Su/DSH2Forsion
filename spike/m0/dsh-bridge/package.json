@@ -1,0 +1,12 @@
+{
+  "name": "dsh2forsion-bridge",
+  "version": "0.0.1-m0",
+  "private": true,
+  "description": "DSH2Forsion M0 bridge: lists and executes DSH tools for the Forsion engine half",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js", "./package.json": "./package.json", "./cordis.patch.yml": "./cordis.patch.yml" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "peerDependencies": { "@deepseek-ai/cordis": "~4.0.5" },
+  "license": "MIT"
+}

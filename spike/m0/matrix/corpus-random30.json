@@ -1,0 +1,230 @@
+{
+ "generatedAt": "2026-10-18",
+ "source": "DSH 生态普查 population.json 去掉前 30 后,random.seed(20261018) 简单随机抽 30;rank 从 101 起编号,与前 30 区分",
+ "categories": {
+  "a": "agent tools",
+  "b": "LLM provider / model routing / subscriptions / model config",
+  "c": "skills / agent presets / prompt content bundles",
+  "d": "MCP connector",
+  "e": "memory / session / history / context",
+  "f": "UI-only (themes, skins, widgets, pets, wallpapers, i18n, panels, usage displays, renderers)",
+  "g": "channels / IM / notifications",
+  "h": "market / plugin manager / updater / config manager",
+  "i": "sandbox / exec / remote access (ssh, docker, remote web, mobile)",
+  "k": "agent behaviour / workflow / guard / orchestration (hooks into agent loop)",
+  "l": "alternative front-end (TUI etc.)",
+  "j": "other (meta-bundles, libraries, data, dev scaffolds, misc)"
+ },
+ "plugins": [
+  {
+   "rank": 101,
+   "name": "dsh-apradar",
+   "version": "0.1.2",
+   "monthly": 535,
+   "category": null
+  },
+  {
+   "rank": 102,
+   "name": "dsh-multimedia-webui-input",
+   "version": "0.1.0",
+   "monthly": 189,
+   "category": null
+  },
+  {
+   "rank": 103,
+   "name": "@guojin-ai/dsh-plugin-guard",
+   "version": "0.2.0",
+   "monthly": 183,
+   "category": null
+  },
+  {
+   "rank": 104,
+   "name": "dsh-tts-speakout",
+   "version": "0.3.2",
+   "monthly": 541,
+   "category": null
+  },
+  {
+   "rank": 105,
+   "name": "safer-dsh-market",
+   "version": "0.10.1",
+   "monthly": 2364,
+   "category": null
+  },
+  {
+   "rank": 106,
+   "name": "@scorehub/tiky-dsh",
+   "version": "0.1.0-beta.1",
+   "monthly": 11,
+   "category": null
+  },
+  {
+   "rank": 107,
+   "name": "@ne-ilyxa/dsh-session-drafts",
+   "version": "0.7.0",
+   "monthly": 952,
+   "category": null
+  },
+  {
+   "rank": 108,
+   "name": "dsh-chat-image-lightbox",
+   "version": "1.7.6",
+   "monthly": 1031,
+   "category": null
+  },
+  {
+   "rank": 109,
+   "name": "@fish-under-sea/dsh-approval-guide",
+   "version": "0.2.2",
+   "monthly": 488,
+   "category": null
+  },
+  {
+   "rank": 110,
+   "name": "@csadi/csadi-ai-base",
+   "version": "0.1.4",
+   "monthly": 240,
+   "category": null
+  },
+  {
+   "rank": 111,
+   "name": "dsh-free-vision",
+   "version": "1.0.8",
+   "monthly": 2598,
+   "category": null
+  },
+  {
+   "rank": 112,
+   "name": "dsh-discussions-radar",
+   "version": "0.1.0",
+   "monthly": 175,
+   "category": null
+  },
+  {
+   "rank": 113,
+   "name": "dsh-fnos-advanced",
+   "version": "0.3.0",
+   "monthly": 0,
+   "category": null
+  },
+  {
+   "rank": 114,
+   "name": "deepseek-harness-sentinel",
+   "version": "0.4.4",
+   "monthly": 943,
+   "category": null
+  },
+  {
+   "rank": 115,
+   "name": "@muou000/dsh-memory",
+   "version": "0.1.1",
+   "monthly": 55,
+   "category": null
+  },
+  {
+   "rank": 116,
+   "name": "@jhp830901/dsh-memoria-extra",
+   "version": "0.1.0",
+   "monthly": 0,
+   "category": null
+  },
+  {
+   "rank": 117,
+   "name": "@dsh-xhl/dsh-git-gui",
+   "version": "0.2.0",
+   "monthly": 455,
+   "category": null
+  },
+  {
+   "rank": 118,
+   "name": "dsh-context-mode",
+   "version": "0.5.3",
+   "monthly": 1792,
+   "category": null
+  },
+  {
+   "rank": 119,
+   "name": "@q253595422/dsh-imagegen-video",
+   "version": "1.7.8",
+   "monthly": 0,
+   "category": null
+  },
+  {
+   "rank": 120,
+   "name": "dsh-trae-skin",
+   "version": "0.2.0",
+   "monthly": 53,
+   "category": null
+  },
+  {
+   "rank": 121,
+   "name": "@mkaliezz/dsh-test-runner",
+   "version": "0.2.2",
+   "monthly": 499,
+   "category": null
+  },
+  {
+   "rank": 122,
+   "name": "@inventec/dsh-copilot-auth",
+   "version": "1.2.21",
+   "monthly": 3407,
+   "category": null
+  },
+  {
+   "rank": 123,
+   "name": "dsh-opencode-go-oauth",
+   "version": "0.1.1",
+   "monthly": 0,
+   "category": null
+  },
+  {
+   "rank": 124,
+   "name": "dsh-chat-locator",
+   "version": "1.5.1",
+   "monthly": 1135,
+   "category": null
+  },
+  {
+   "rank": 125,
+   "name": "dsh-ui-dafeng-customizer",
+   "version": "0.1.3",
+   "monthly": 114,
+   "category": null
+  },
+  {
+   "rank": 126,
+   "name": "dsh-billing-badge",
+   "version": "0.1.4",
+   "monthly": 1490,
+   "category": null
+  },
+  {
+   "rank": 127,
+   "name": "@taontech/dsh-git",
+   "version": "0.1.2",
+   "monthly": 112,
+   "category": null
+  },
+  {
+   "rank": 128,
+   "name": "relay-dsh-plugin-files",
+   "version": "0.2.2",
+   "monthly": 206,
+   "category": null
+  },
+  {
+   "rank": 129,
+   "name": "@goodandready/dsh-tts",
+   "version": "0.4.34",
+   "monthly": 6062,
+   "category": null
+  },
+  {
+   "rank": 130,
+   "name": "@liuhange/dsh-data-asset-attestation",
+   "version": "3.1.4",
+   "monthly": 866,
+   "category": null
+  }
+ ]
+}

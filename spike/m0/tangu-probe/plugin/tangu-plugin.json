@@ -1,0 +1,7 @@
+{
+  "id": "dsh2forsion",
+  "name": "DSH2Forsion",
+  "version": "0.0.0-m0",
+  "apiVersion": 1,
+  "entry": "dist/index.js"
+}

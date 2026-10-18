@@ -1,0 +1,6 @@
+{
+  "name": "dsh2forsion-m0-embed",
+  "private": true,
+  "type": "module",
+  "devDependencies": { "electron": "40.8.0", "playwright-core": "1.64.1" }
+}
