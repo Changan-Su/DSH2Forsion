@@ -226,7 +226,8 @@ try {
   })
 } finally {
   await engine.deactivate().catch(() => {})
-  await rm(scratch, { recursive: true, force: true })
+  // CI 的机器用完即弃；Windows 上删 1.4 GB 的运行时树要好几分钟，就不删了
+  if (!process.env.CI) await rm(scratch, { recursive: true, force: true })
 }
 
 console.log(`check-sidecar: ${n} passed`)
