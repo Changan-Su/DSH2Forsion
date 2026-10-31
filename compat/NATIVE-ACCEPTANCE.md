@@ -17,7 +17,9 @@ Runtime checks use `DSH2FORSION_ROOT=<existing plugin-data with node/ and runtim
 
 GUI: set `FORSION_DESKTOP=<built desktop>`, `FORSION_AGENT`, `DSH2FORSION_ENGINE_MODE=managed` and an isolated `DSH2FORSION_GUI_HOME`. The harness stages the existing desktop build separately and points its managed child at the tested engine; external mode cannot grant local plugin capability. Run through the workspace's GUI lock. `DSH2FORSION_NATIVE_CASES=approve,reject,cancel` selects tasks; `DSH2FORSION_NATIVE_PANELS_ONLY=1` verifies panel rendering without model calls. Before a task starts, assert the real sidebar selection, authenticated view request and native cwd agree. A pinned chat pane alone does not change the global active project; a missing selection fails closed.
 
-真机台架使用独立 managed 桌面及数据目录，不修改用户主检出与实际项目。调用模型前先核对侧栏活动会话、原生请求与目录；没有会话不能回退旧 ledger。TaskBoard 的任务、审批与历史在 Tangu 中，DSH 只保留外部执行引用。桌面重启后核对实际原生结果，不能只看卡片颜色。
+The Skills Manager read scenario requires an existing DSH skill in the isolated GUI seed, such as one created by the popular-plugin live test. A missing seed skill fails before any model task starts. `DSH2FORSION_NATIVE_REUSE_RESULTS=<previous result.json>` supports zero-model verification of existing terminal task identities; keep original execution/approval evidence alongside the replay.
+
+真机台架使用独立 managed 桌面及数据目录，不修改用户主检出与实际项目。技能管理读取场景需要隔离 seed 内已有 DSH 技能；缺失时在模型调用前失败。调用模型前先核对侧栏活动会话、原生请求与目录；没有会话不能回退旧 ledger。TaskBoard 的任务、审批与历史在 Tangu 中，DSH 只保留外部执行引用。桌面重启后核对实际原生结果，不能只看卡片颜色。
 
 HTML: `npm run report:html` reads archived raw results in the sibling `harness-runs/2026-10-31/`. Screenshots remain separate local artifacts and are never embedded in committed HTML. Historical whole-DSH-page screenshots must stay labeled as a diagnostic baseline. The generated report distinguishes native desktop, browser, real model and deterministic protocol evidence.
 

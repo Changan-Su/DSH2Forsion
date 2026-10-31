@@ -2,7 +2,10 @@
  * Original Task Board in real Forsion Electron, using its real managed engine.
  * Requires built FORSION_DESKTOP and FORSION_AGENT. Optional existing isolated
  * DSH2FORSION_GUI_HOME avoids reinstalling the runtime and third-party packages.
- * Otherwise DSH2FORSION_ROOT supplies a preinstalled node/runtime tree.
+ * Otherwise DSH2FORSION_ROOT supplies a preinstalled node/runtime tree. The
+ * Skills Manager read scenario requires an existing skill in the isolated
+ * DSH home (the popular live GUI seed already contains one); this is checked
+ * before any model task is scheduled.
  * The existing desktop build is staged in the isolated home; its sibling engine
  * junction selects FORSION_AGENT without modifying either source checkout.
  * Run under the repository's devlock.cjs run --vehicle=e2e wrapper. Explicit
@@ -435,11 +438,18 @@ async function main() {
   if (process.env.DSH2FORSION_ROOT) for (const sub of ['node', 'runtime']) {
     if (!fs.existsSync(path.join(data, sub))) fs.symlinkSync(path.join(process.env.DSH2FORSION_ROOT, sub), path.join(data, sub), process.platform === 'win32' ? 'junction' : 'dir')
   }
+  const skillRoot = path.join(data, 'home/skills')
+  assert.ok(fs.existsSync(skillRoot) && fs.readdirSync(skillRoot).some(name => fs.existsSync(path.join(skillRoot, name, 'SKILL.md'))), 'Use an isolated GUI seed with an existing DSH skill for the original Skills Manager read scenario')
   if (!fs.existsSync(authLink)) { fs.symlinkSync(process.env.DSH2FORSION_AUTH || path.join(os.homedir(), '.forsion-dev/provider-auth.json'), authLink); linkedAuth = true }
   await startEngine()
   const installed = await api(PREFIX + '/plugins')
   console.log('STEP required DSH packages')
-  for (const [name, spec] of [['dsh-client-ui-task-board', '@linxin666/dsh-client-ui-task-board@0.4.7'], ['dsh2forsion-live-probe', `file:${path.join(REPO, 'tests/fixtures/live-probe')}`]]) {
+  for (const [name, spec] of [
+    ['dsh-client-ui-task-board', '@linxin666/dsh-client-ui-task-board@0.4.7'],
+    ['dsh-skills-manager', '@michengai/dsh-skills-manager@1.2.24'],
+    ['dsh-client-ui-git-graph', '@linxin666/dsh-client-ui-git-graph@0.4.7'],
+    ['dsh2forsion-live-probe', `file:${path.join(REPO, 'tests/fixtures/live-probe')}`],
+  ]) {
     if (!JSON.stringify(installed.plugins).includes(name)) {
       const result = await api(PREFIX + '/plugins/install', { spec })
       assert.equal(result.status, 'installed', `${name} installs`)
