@@ -11,6 +11,7 @@ DSH2Forsion 不重写 DSH 的接口。DSH 插件跑在真的 DSH 运行时里，
 | 工具 | `ctx.tools.register(defineTool(…))` | Tangu 的 ToolProvider：名字 `dsh__<原名>`，参数 schema 原样，`approval: 'always'`、`automationSafe: false`；执行时经桥调 `ctx.tools.execute` | ✅ |
 | DSH 自带工具（预设里的 read / bash 等） | 预设作用域 | **不**导入：Tangu 有自己的同类工具，DSH 全局表里只有 `working_directory`，按基线剔除 | 设计如此 |
 | 工具的工作目录 | `workingDirectory` 服务按 agent 会话取 | 每个 Tangu 会话的 `cwd` 对应一个桥自己的 DSH agent（会话 id = `dsh2forsion-<cwd 哈希>`，已归档，不出现在 DSH 的会话列表） | ✅ |
+| 工作目录上下文故障 | agent 创建 / 恢复失败 | 指定了 `cwd` 就必须建立其上下文；失败时报错且不调用工具，下次调用可重试。等待上下文期间取消也不启动工具 | ✅ |
 | 工具审批 | `approval/request` 事件 | Tangu 先问；批了以后桥只为这一次调用（60 秒内、同一个 callId）回答 `allowed-once`，别的照常交给 DSH 自己的审批卡 | ✅ |
 | 工具取消 | `signal` | Tangu 中止 → HTTP 断开 → 桥中止那次 `execute` | ✅ |
 | 系统提示词分节 | `ctx.systemPrompt.section({ name, order, text })` | 拼成一段进 Tangu 的系统提示词（`promptSection`），DSH 自带分节按基线剔除，总长 4000 字封顶 | ✅ |

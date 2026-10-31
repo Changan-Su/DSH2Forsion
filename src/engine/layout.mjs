@@ -27,8 +27,11 @@ export function layout(root, platform = process.platform) {
     nodeDir,
     nodeBin: win ? join(nodeDir, 'node.exe') : join(nodeDir, 'bin', 'node'),
     nodeBinDir: win ? nodeDir : join(nodeDir, 'bin'),
+    // Locked pnpm wins over a leftover global copy; old v0.1 installations still fall back to it.
+    runtimePath: [join(runtimeDir, 'node_modules', '.bin'), win ? nodeDir : join(nodeDir, 'bin')].join(win ? ';' : ':'),
     npmCli: win ? join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js') : join(nodeDir, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
-    pnpmBin: win ? join(nodeDir, 'pnpm.cmd') : join(nodeDir, 'bin', 'pnpm'),
+    pnpmBin: join(runtimeDir, 'node_modules', '.bin', win ? 'pnpm.cmd' : 'pnpm'),
+    legacyPnpmBin: win ? join(nodeDir, 'pnpm.cmd') : join(nodeDir, 'bin', 'pnpm'),
     runtimeDir,
     dshBin: join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
     home,

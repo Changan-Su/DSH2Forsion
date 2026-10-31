@@ -28,23 +28,38 @@ function check(name, ok, detail) {
 async function until(fn, label, ms = 60_000) {
   const end = Date.now() + ms
   for (;;) {
-    const v = await fn().catch(() => null)
+    const v = await Promise.resolve().then(fn).catch(() => null)
     if (v) return v
     if (Date.now() > end) throw new Error(`Timed out: ${label}`)
     await new Promise(r => setTimeout(r, 250))
   }
 }
 
+async function closeApp(app) {
+  const proc = app.process()
+  await Promise.race([app.close().catch(() => {}), new Promise(r => setTimeout(r, 8000))])
+  if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL')
+  await until(async () => proc.exitCode !== null || proc.signalCode !== null, 'test Electron exits', 10_000)
+}
+
 async function main() {
   fs.mkdirSync(SHOTS, { recursive: true })
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forsion-dsh2forsion-'))
-  const userData = path.join(home, 'userdata')
+  const seed = process.env.DSH2FORSION_GUI_SEED ? JSON.parse(fs.readFileSync(process.env.DSH2FORSION_GUI_SEED, 'utf8')) : null
+  const home = seed?.shared || process.env.DSH2FORSION_GUI_HOME || fs.mkdtempSync(path.join(os.tmpdir(), 'forsion-dsh2forsion-'))
+  console.log(`GUI test home: ${home}`)
+  fs.writeFileSync(path.join(SHOTS, 'test-home.txt'), home)
+  // Retry with fresh shell preferences; the DSH data stays in the seeded home.
+  // The in-test restart deliberately reuses this same userData directory.
+  const userData = path.join(home, `userdata-${Date.now()}`)
+  const authLink = path.join(home, 'provider-auth.json')
+  const liveAuth = process.env.DSH2FORSION_GUI_LIVE === '1'
+  let createdAuthLink = false
   fs.cpSync(path.join(REPO, 'plugin'), path.join(home, 'plugins', 'dsh2forsion'), { recursive: true })
-  const prelinked = Boolean(process.env.DSH2FORSION_ROOT)
-  if (prelinked) {
+  const prelinked = Boolean(process.env.DSH2FORSION_ROOT) || fs.existsSync(path.join(home, 'tangu/plugin-data/dsh2forsion/runtime/0.2.1-rc.2/.dsh2forsion-ready'))
+  if (process.env.DSH2FORSION_ROOT) {
     const data = path.join(home, 'tangu', 'plugin-data', 'dsh2forsion')
     fs.mkdirSync(data, { recursive: true })
-    for (const sub of ['node', 'runtime']) fs.symlinkSync(path.join(process.env.DSH2FORSION_ROOT, sub), path.join(data, sub), 'dir')
+    for (const sub of ['node', 'runtime']) if (!fs.existsSync(path.join(data, sub))) fs.symlinkSync(path.join(process.env.DSH2FORSION_ROOT, sub), path.join(data, sub), process.platform === 'win32' ? 'junction' : 'dir')
   }
   for (const ud of [userData, `${userData}-dev`]) {
     fs.mkdirSync(ud, { recursive: true })
@@ -52,18 +67,42 @@ async function main() {
   }
   const env = { ...process.env, TANGU_HOME: home, TANGU_CLOUD_URL: 'http://127.0.0.1:9' }
   delete env.TANGU_BACKEND_URL
-  const shot = async (page, name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(SHOTS, `${name}.png`) }); console.log(`      shot ${name}.png`) }
+  delete env.TANGU_PLUGINS_DIR
+  delete env.TANGU_BUNDLE_DIRS
+  env.TANGU_PLUGINS = 'on'
+  const shot = async (page, name) => {
+    await page.waitForTimeout(400)
+    const geometry = await page.evaluate(async () => {
+      const wv = document.querySelector('.d2f-space webview')
+      const rect = wv?.getBoundingClientRect()
+      return { host: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio }, webview: rect && { width: rect.width, height: rect.height }, guest: wv && await wv.executeJavaScript('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})').catch(() => null) }
+    })
+    fs.writeFileSync(path.join(SHOTS, `${name}-geometry.json`), JSON.stringify(geometry))
+    if (geometry.webview?.width > 0 && geometry.guest?.width > 0) {
+      assert.ok(Math.abs(geometry.webview.width - geometry.guest.width) <= 2 && Math.abs(geometry.webview.height - geometry.guest.height) <= 2, 'DSH guest fills its host at native Windows DPI')
+    }
+    await page.screenshot({ path: path.join(SHOTS, `${name}.png`) })
+    console.log(`      shot ${name}.png`)
+  }
 
   let app
   try {
+    if (liveAuth && !fs.existsSync(authLink)) {
+      fs.symlinkSync(process.env.DSH2FORSION_AUTH || path.join(os.homedir(), '.forsion-dev/provider-auth.json'), authLink)
+      createdAuthLink = true
+    }
     app = await electron.launch({ args: [`--user-data-dir=${userData}`, '--lang=zh-CN', DESKTOP], cwd: DESKTOP, env, timeout: 90_000 })
     const win = await app.firstWindow()
+    win.on('pageerror', error => fs.appendFileSync(path.join(SHOTS, 'page-errors.log'), `${error.stack || error}\n`))
     win.setDefaultTimeout(30_000)
     // 界面半身发给引擎的请求（作用域路由）：外观同步那一环断在哪，靠它分清是没发、发错还是 DSH 没跟
     const engineCalls = []
     win.on('request', r => { if (r.url().includes('/extensions/')) engineCalls.push({ at: Date.now(), method: r.method(), path: new URL(r.url()).pathname, body: r.postData() }) })
     win.on('requestfinished', async r => { if (r.url().includes('/appearance')) { const res = await r.response(); console.log(`      appearance → ${res?.status()} ${(await res?.text().catch(() => ''))?.slice(0, 160)}`) } })
-    await win.setViewportSize({ width: 1360, height: 860 }).catch(() => {})
+    // Resize the native window. Chromium viewport emulation does not resize
+    // Electron's embedded guest consistently on Windows at 125% DPI.
+    const nativeWindow = await app.browserWindow(win)
+    await nativeWindow.evaluate(window => window.setContentSize(1360, 860))
     await win.waitForSelector('#root')
     await win.waitForTimeout(1000)
     for (const label of ['跳过引导', 'Skip onboarding', 'Skip']) {
@@ -105,7 +144,7 @@ async function main() {
     await webview.waitFor({ timeout: 600_000 })
     const src = await webview.getAttribute('src')
     // 打开的是带一次性 token 的登录地址，DSH 换完 cookie 会跳到 /，src 跟着变：只认本机地址
-    check('DSH 界面以 webview 嵌入，只连本机', /^http:\/\/127\.0\.0\.1:\d+\//.test(src || ''), src)
+    check('DSH 界面以 webview 嵌入，只连本机', /^http:\/\/127\.0\.0\.1:\d+\//.test(src || ''), src?.split('?')[0])
     const title = await until(() => win.evaluate(() => new Promise(resolve => {
       const wv = document.querySelector('.d2f-space webview')
       wv.executeJavaScript('document.readyState === "complete" && document.body.innerText.length > 20 ? document.body.innerText.slice(0, 400) : ""').then(resolve, () => resolve(''))
@@ -163,6 +202,10 @@ async function main() {
       await win.waitForTimeout(600)
       return null
     }, 'dark mode toggle', 20_000)
+    if (await win.evaluate(() => document.documentElement.getAttribute('data-mode') === 'dark')) {
+      await toggle.click()
+      await until(() => win.evaluate(() => document.documentElement.getAttribute('data-mode') === 'light'), 'reset theme before dark toggle')
+    }
     const sentBefore = engineCalls.length
     await toggle.click()
     const mode = await until(async () => { const m = await win.evaluate(() => document.documentElement.getAttribute('data-mode')); return m === 'dark' && m }, 'Forsion dark mode', 10_000)
@@ -186,7 +229,20 @@ async function main() {
     check("Forsion 切深色后 DSH 网页也是深色", /dark/.test(darkScheme), `forsion=${mode} dsh ${before} → ${darkScheme}`)
     await win.waitForTimeout(1500)
     await shot(win, '06-dsh-space-dark')
+    if (process.env.DSH2FORSION_FULL === '1') {
+      await require('./full-loop.cjs')({ app, win, settings, home, seed, check, until, shot, shots: SHOTS,
+        restart: async () => {
+          await closeApp(app)
+          app = await electron.launch({ args: [`--user-data-dir=${userData}`, '--lang=zh-CN', DESKTOP], cwd: DESKTOP, env, timeout: 90_000 })
+          const page = await app.firstWindow()
+          await page.waitForSelector('.rb', { timeout: 60_000 })
+          await until(async () => (await page.evaluate(() => window.tangu.backendStatus())).state === 'ready', 'restarted managed engine', 120_000)
+          return { app, page }
+        },
+      })
+    }
   } catch (error) {
+    check('GUI acceptance completes', false, error.message)
     // 失败现场：每个窗口一张截图 + Ribbon 与插件清单，先看现场再猜原因
     for (const [i, page] of (app?.windows() ?? []).entries()) {
       await page.screenshot({ path: path.join(SHOTS, `failure-${i}.png`) }).catch(() => {})
@@ -195,20 +251,26 @@ async function main() {
         body: document.body.innerText.slice(0, 1500),
       })).catch(e => String(e))
       fs.writeFileSync(path.join(SHOTS, `failure-${i}.json`), JSON.stringify(dump, null, 1))
+      const guest = await page.evaluate(async () => {
+        const view = document.querySelector('.d2f-space webview')
+        return view && await view.executeJavaScript('document.body.innerText')
+      }).catch(() => null)
+      if (guest) fs.writeFileSync(path.join(SHOTS, `failure-${i}-guest.txt`), guest)
     }
     fs.writeFileSync(path.join(SHOTS, 'failure-home.txt'), `${home}\n`)
     throw error
   } finally {
+    fs.writeFileSync(path.join(SHOTS, 'results.json'), JSON.stringify(results, null, 2))
     // app.close() 在这台无显示的机器上会挂住：限时关，到点强杀（sidecar 有父进程看门狗，不会留孤儿）
-    if (app) {
-      const proc = app.process()
-      await Promise.race([app.close().catch(() => {}), new Promise(r => setTimeout(r, 8000))])
-      try { proc.kill('SIGKILL') } catch { /* 已退出 */ }
-    }
+    try { if (app) await closeApp(app) }
+    finally { if (createdAuthLink && fs.lstatSync(authLink, { throwIfNoEntry: false })) fs.unlinkSync(authLink) }
   }
   const failed = results.filter(r => !r.ok)
+  fs.writeFileSync(path.join(SHOTS, 'results.json'), JSON.stringify(results, null, 2))
   console.log(`\n${results.length - failed.length} passed / ${failed.length} failed`)
   process.exitCode = failed.length ? 1 : 0
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1 })
+// Playwright's transport can retain handles after a forced Electron shutdown.
+// main's finally has already closed the app and removed our authentication link.
+main().then(() => process.exit(process.exitCode || 0), error => { console.error(error); process.exit(1) })

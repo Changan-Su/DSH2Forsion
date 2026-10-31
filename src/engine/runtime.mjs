@@ -1,7 +1,7 @@
 // 运行时安装：官方 Node（SHASUMS256 校验）→ 钉死的 @deepseek-ai/dsh（--ignore-scripts，
 // 只给 DSH 自己的三个原生依赖跑构建）→ pnpm（DSH 装插件要它）。M0 实测体积约 1.1 GB。
 import { createHash } from 'node:crypto'
-import { createReadStream, existsSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile, rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DSH_VERSION, NODE_MIRRORS, NODE_SHA256, NODE_VERSION, NPM_REGISTRIES, PNPM_VERSION, TRUSTED_NATIVE_PACKAGES } from './constants.mjs'
@@ -10,7 +10,12 @@ import { nodePlatform } from './layout.mjs'
 import { run, tail } from './proc.mjs'
 
 export function runtimeInstalled(paths) {
-  return existsSync(paths.runtimeMarker) && existsSync(paths.nodeBin) && existsSync(paths.dshBin)
+  try {
+    const marker = JSON.parse(readFileSync(paths.runtimeMarker, 'utf8'))
+    return marker.dsh === DSH_VERSION && marker.node === NODE_VERSION && marker.pnpm === PNPM_VERSION
+      && existsSync(paths.nodeBin) && existsSync(paths.dshBin)
+      && existsSync(marker.lockSha256 ? paths.pnpmBin : paths.legacyPnpmBin)
+  } catch { return false }
 }
 
 /** 下载源顺序：auto = 官方优先、失败退国内镜像。 */
@@ -94,6 +99,7 @@ async function installNode(paths, { source, log, signal }) {
 }
 
 function npm(paths, args, { registry, log, signal, cwd }) {
+  signal?.throwIfAborted()
   const env = childEnv(process.env, {
     binDir: paths.nodeBinDir,
     extra: { npm_config_cache: join(paths.cache, 'npm'), npm_config_registry: registry, npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' },
@@ -103,14 +109,21 @@ function npm(paths, args, { registry, log, signal, cwd }) {
 
 async function installDsh(paths, { source, log, signal }) {
   await mkdir(paths.runtimeDir, { recursive: true })
-  const pkg = join(paths.runtimeDir, 'package.json')
-  if (!existsSync(pkg)) await writeFile(pkg, '{ "name": "dsh2forsion-runtime", "private": true }\n')
+  const manifest = await readFile(new URL('../runtime/package.json', import.meta.url))
+  const lock = await readFile(new URL('../runtime/package-lock.json', import.meta.url))
+  // Read the shipped files before invalidating an incomplete installation. Never resolve a new tree here.
+  signal?.throwIfAborted()
+  await rm(paths.runtimeMarker, { force: true })
+  await writeFile(join(paths.runtimeDir, 'package.json'), manifest)
+  await writeFile(join(paths.runtimeDir, 'package-lock.json'), lock)
   let lastError
   for (const which of sources(source)) {
+    signal?.throwIfAborted()
     const registry = NPM_REGISTRIES[which]
-    log(`npm install @deepseek-ai/dsh@${DSH_VERSION} (${which})`)
-    const r = await npm(paths, ['install', '--ignore-scripts', '--save-exact', '--no-audit', '--no-fund', `@deepseek-ai/dsh@${DSH_VERSION}`], { registry, log, signal, cwd: paths.runtimeDir })
-    if (r.code !== 0) { lastError = new Error(`npm install failed (${which}): ${tail(r.out, 5)}`); log(lastError.message); continue }
+    log(`npm ci @deepseek-ai/dsh@${DSH_VERSION}, pnpm@${PNPM_VERSION} (${which})`)
+    const r = await npm(paths, ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], { registry, log, signal, cwd: paths.runtimeDir })
+    signal?.throwIfAborted()
+    if (r.code !== 0) { lastError = new Error(`npm ci failed (${which}): ${tail(r.out, 5)}`); log(lastError.message); continue }
     // npm 11 的 allowScripts：不先批准，rebuild 会静默跳过这三个包的脚本
     // （macOS 上 node-pty 的 spawn-helper 就缺执行位，终端类工具起不来）。老 npm 没这个子命令，失败就照旧 rebuild。
     const approve = await npm(paths, ['install-scripts', 'approve', ...TRUSTED_NATIVE_PACKAGES], { registry, log, signal, cwd: paths.runtimeDir })
@@ -118,20 +131,22 @@ async function installDsh(paths, { source, log, signal }) {
     log('build DSH native dependencies')
     const b = await npm(paths, ['rebuild', ...TRUSTED_NATIVE_PACKAGES], { registry, log, signal, cwd: paths.runtimeDir })
     if (b.code !== 0) { lastError = new Error(`native rebuild failed: ${tail(b.out, 5)}`); log(lastError.message); continue }
-    log(`npm install -g pnpm@${PNPM_VERSION}`)
-    const p = await npm(paths, ['install', '-g', '--prefix', paths.nodeDir, '--no-audit', '--no-fund', `pnpm@${PNPM_VERSION}`], { registry, log, signal, cwd: paths.runtimeDir })
-    if (p.code !== 0) { lastError = new Error(`pnpm install failed: ${tail(p.out, 5)}`); log(lastError.message); continue }
-    return registry
+    signal?.throwIfAborted()
+    return { registry, lockSha256: createHash('sha256').update(lock).digest('hex') }
   }
   throw lastError ?? new Error('runtime install failed')
 }
 
 /** 整套安装；可重复调用，已装好的部分跳过。 */
 export async function installRuntime(paths, { source = 'auto', log = () => {}, signal } = {}) {
+  signal?.throwIfAborted()
+  // Includes pre-lock v0.1 installations: do not overwrite a working runtime on retry.
+  if (runtimeInstalled(paths)) { log('runtime already installed'); return }
   await mkdir(paths.root, { recursive: true })
   await installNode(paths, { source, log, signal })
-  const registry = await installDsh(paths, { source, log, signal })
-  await writeFile(paths.runtimeMarker, JSON.stringify({ dsh: DSH_VERSION, node: NODE_VERSION, pnpm: PNPM_VERSION, registry, at: new Date().toISOString() }) + '\n')
+  const { registry, lockSha256 } = await installDsh(paths, { source, log, signal })
+  signal?.throwIfAborted()
+  await writeFile(paths.runtimeMarker, JSON.stringify({ dsh: DSH_VERSION, node: NODE_VERSION, pnpm: PNPM_VERSION, registry, lockSha256, at: new Date().toISOString() }) + '\n')
   // npm 的下载缓存装完就没用了（约 260 MB）；装 DSH 插件用的是 pnpm 的 store，不在这里
   await rm(join(paths.cache, 'npm'), { recursive: true, force: true }).catch(() => {})
   log('runtime ready')
