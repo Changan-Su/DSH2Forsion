@@ -121,7 +121,8 @@ try {
       assert.equal(tool.capabilities.approval, 'always')
       assert.equal(tool.capabilities.automationSafe, false)
     }
-    assert.equal(meta.promptSection(), '')
+    assert.match(meta.promptSection(), /dsh_mcp_catalog/)
+    assert.doesNotMatch(meta.promptSection(), /fixture ping/)
     const space = await call('POST', '/space')
     assert.match(space.url, /^http:\/\/127\.0\.0\.1:\d+\/\?token=\S+$/)
   })
