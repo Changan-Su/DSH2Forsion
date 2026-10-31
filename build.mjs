@@ -19,6 +19,8 @@ await cp(join(root, 'src/static/icon.svg'), join(out, 'spaces/dsh/icon.svg'))
 await cp(join(root, 'src/renderer/main.js'), join(out, 'main.js'))
 await cp(join(root, 'src/static/tangu-plugin'), engineOut, { recursive: true })
 await cp(join(root, 'src/dsh-bridge'), join(engineOut, 'dsh-bridge'), { recursive: true })
+await mkdir(join(engineOut, 'runtime'), { recursive: true })
+for (const f of ['package.json', 'package-lock.json']) await cp(join(root, 'src/runtime', f), join(engineOut, 'runtime', f))
 await cp(join(root, 'compat'), join(engineOut, 'compat'), { recursive: true, filter: src => !src.endsWith('.md') })
 await build({
   entryPoints: [join(root, 'src/engine/index.mjs')],

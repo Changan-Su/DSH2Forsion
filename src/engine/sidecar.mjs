@@ -62,7 +62,7 @@ export class Sidecar {
       this.setState('starting')
       const t0 = Date.now()
       const env = childEnv(process.env, {
-        binDir: this.paths.nodeBinDir,
+        binDir: this.paths.runtimePath,
         extra: { DSH_HOME: this.home, DSH2FORSION_SECRET: this.secret, DSH2FORSION_PARENT_PID: String(process.pid), npm_config_store_dir: join(this.paths.cache, 'pnpm-store'), npm_config_update_notifier: 'false' },
       })
       let child

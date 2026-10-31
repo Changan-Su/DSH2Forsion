@@ -1,7 +1,7 @@
 // DSH2Forsion engine half (built from src/engine by build.mjs; do not edit)
 
 // src/engine/index.mjs
-import { existsSync as existsSync4, readFileSync as readFileSync2 } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";
 import { join as join6 } from "node:path";
 
 // src/engine/constants.mjs
@@ -51,8 +51,11 @@ function layout(root, platform = process.platform) {
     nodeDir,
     nodeBin: win ? join(nodeDir, "node.exe") : join(nodeDir, "bin", "node"),
     nodeBinDir: win ? nodeDir : join(nodeDir, "bin"),
+    // Locked pnpm wins over a leftover global copy; old v0.1 installations still fall back to it.
+    runtimePath: [join(runtimeDir, "node_modules", ".bin"), win ? nodeDir : join(nodeDir, "bin")].join(win ? ";" : ":"),
     npmCli: win ? join(nodeDir, "node_modules", "npm", "bin", "npm-cli.js") : join(nodeDir, "lib", "node_modules", "npm", "bin", "npm-cli.js"),
-    pnpmBin: win ? join(nodeDir, "pnpm.cmd") : join(nodeDir, "bin", "pnpm"),
+    pnpmBin: join(runtimeDir, "node_modules", ".bin", win ? "pnpm.cmd" : "pnpm"),
+    legacyPnpmBin: win ? join(nodeDir, "pnpm.cmd") : join(nodeDir, "bin", "pnpm"),
     runtimeDir,
     dshBin: join(runtimeDir, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
     home,
@@ -196,7 +199,7 @@ function tail(text, n = 20) {
 // src/engine/profile.mjs
 function dsh(paths, home, args, { log, signal, timeoutMs = 9e5 } = {}) {
   const env = childEnv(process.env, {
-    binDir: paths.nodeBinDir,
+    binDir: paths.runtimePath,
     extra: { DSH_HOME: home, npm_config_store_dir: join2(paths.cache, "pnpm-store"), npm_config_update_notifier: "false" }
   });
   return run(paths.nodeBin, [paths.dshBin, ...args], { cwd: home, env, timeoutMs, onLine: log, signal });
@@ -345,7 +348,7 @@ var Sidecar = class {
       this.setState("starting");
       const t0 = Date.now();
       const env = childEnv(process.env, {
-        binDir: this.paths.nodeBinDir,
+        binDir: this.paths.runtimePath,
         extra: { DSH_HOME: this.home, DSH2FORSION_SECRET: this.secret, DSH2FORSION_PARENT_PID: String(process.pid), npm_config_store_dir: join3(this.paths.cache, "pnpm-store"), npm_config_update_notifier: "false" }
       });
       let child;
@@ -735,11 +738,16 @@ var PluginManager = class {
 
 // src/engine/runtime.mjs
 import { createHash } from "node:crypto";
-import { createReadStream, existsSync as existsSync3 } from "node:fs";
+import { createReadStream, existsSync as existsSync3, readFileSync as readFileSync2 } from "node:fs";
 import { mkdir as mkdir3, readFile as readFile3, rm as rm3, writeFile as writeFile2, rename } from "node:fs/promises";
 import { join as join5 } from "node:path";
 function runtimeInstalled(paths) {
-  return existsSync3(paths.runtimeMarker) && existsSync3(paths.nodeBin) && existsSync3(paths.dshBin);
+  try {
+    const marker = JSON.parse(readFileSync2(paths.runtimeMarker, "utf8"));
+    return marker.dsh === DSH_VERSION && marker.node === NODE_VERSION && marker.pnpm === PNPM_VERSION && existsSync3(paths.nodeBin) && existsSync3(paths.dshBin) && existsSync3(marker.lockSha256 ? paths.pnpmBin : paths.legacyPnpmBin);
+  } catch {
+    return false;
+  }
 }
 function sources(choice = "auto") {
   if (choice === "official") return ["official"];
@@ -813,6 +821,7 @@ async function installNode(paths, { source, log, signal }) {
   throw lastError ?? new Error("node download failed");
 }
 function npm(paths, args, { registry, log, signal, cwd }) {
+  signal?.throwIfAborted();
   const env = childEnv(process.env, {
     binDir: paths.nodeBinDir,
     extra: { npm_config_cache: join5(paths.cache, "npm"), npm_config_registry: registry, npm_config_update_notifier: "false", npm_config_fund: "false", npm_config_audit: "false" }
@@ -821,15 +830,21 @@ function npm(paths, args, { registry, log, signal, cwd }) {
 }
 async function installDsh(paths, { source, log, signal }) {
   await mkdir3(paths.runtimeDir, { recursive: true });
-  const pkg = join5(paths.runtimeDir, "package.json");
-  if (!existsSync3(pkg)) await writeFile2(pkg, '{ "name": "dsh2forsion-runtime", "private": true }\n');
+  const manifest = await readFile3(new URL("../runtime/package.json", import.meta.url));
+  const lock = await readFile3(new URL("../runtime/package-lock.json", import.meta.url));
+  signal?.throwIfAborted();
+  await rm3(paths.runtimeMarker, { force: true });
+  await writeFile2(join5(paths.runtimeDir, "package.json"), manifest);
+  await writeFile2(join5(paths.runtimeDir, "package-lock.json"), lock);
   let lastError;
   for (const which of sources(source)) {
+    signal?.throwIfAborted();
     const registry = NPM_REGISTRIES[which];
-    log(`npm install @deepseek-ai/dsh@${DSH_VERSION} (${which})`);
-    const r = await npm(paths, ["install", "--ignore-scripts", "--save-exact", "--no-audit", "--no-fund", `@deepseek-ai/dsh@${DSH_VERSION}`], { registry, log, signal, cwd: paths.runtimeDir });
+    log(`npm ci @deepseek-ai/dsh@${DSH_VERSION}, pnpm@${PNPM_VERSION} (${which})`);
+    const r = await npm(paths, ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], { registry, log, signal, cwd: paths.runtimeDir });
+    signal?.throwIfAborted();
     if (r.code !== 0) {
-      lastError = new Error(`npm install failed (${which}): ${tail(r.out, 5)}`);
+      lastError = new Error(`npm ci failed (${which}): ${tail(r.out, 5)}`);
       log(lastError.message);
       continue;
     }
@@ -842,23 +857,23 @@ async function installDsh(paths, { source, log, signal }) {
       log(lastError.message);
       continue;
     }
-    log(`npm install -g pnpm@${PNPM_VERSION}`);
-    const p = await npm(paths, ["install", "-g", "--prefix", paths.nodeDir, "--no-audit", "--no-fund", `pnpm@${PNPM_VERSION}`], { registry, log, signal, cwd: paths.runtimeDir });
-    if (p.code !== 0) {
-      lastError = new Error(`pnpm install failed: ${tail(p.out, 5)}`);
-      log(lastError.message);
-      continue;
-    }
-    return registry;
+    signal?.throwIfAborted();
+    return { registry, lockSha256: createHash("sha256").update(lock).digest("hex") };
   }
   throw lastError ?? new Error("runtime install failed");
 }
 async function installRuntime(paths, { source = "auto", log = () => {
 }, signal } = {}) {
+  signal?.throwIfAborted();
+  if (runtimeInstalled(paths)) {
+    log("runtime already installed");
+    return;
+  }
   await mkdir3(paths.root, { recursive: true });
   await installNode(paths, { source, log, signal });
-  const registry = await installDsh(paths, { source, log, signal });
-  await writeFile2(paths.runtimeMarker, JSON.stringify({ dsh: DSH_VERSION, node: NODE_VERSION, pnpm: PNPM_VERSION, registry, at: (/* @__PURE__ */ new Date()).toISOString() }) + "\n");
+  const { registry, lockSha256 } = await installDsh(paths, { source, log, signal });
+  signal?.throwIfAborted();
+  await writeFile2(paths.runtimeMarker, JSON.stringify({ dsh: DSH_VERSION, node: NODE_VERSION, pnpm: PNPM_VERSION, registry, lockSha256, at: (/* @__PURE__ */ new Date()).toISOString() }) + "\n");
   await rm3(join5(paths.cache, "npm"), { recursive: true, force: true }).catch(() => {
   });
   log("runtime ready");
@@ -982,7 +997,7 @@ var PROVIDER_ID = `plugin:${PLUGIN_ID}`;
 var LOG_LIMIT2 = 300;
 function readJson(file, fallback) {
   try {
-    return JSON.parse(readFileSync2(file, "utf8"));
+    return JSON.parse(readFileSync3(file, "utf8"));
   } catch {
     return fallback;
   }

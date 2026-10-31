@@ -9,7 +9,7 @@ import { run } from './proc.mjs'
 /** 跑一条 `dsh …`；DSH_HOME 指向给定的 home（主 profile 或试启动用的临时 home）。 */
 export function dsh(paths, home, args, { log, signal, timeoutMs = 900_000 } = {}) {
   const env = childEnv(process.env, {
-    binDir: paths.nodeBinDir,
+    binDir: paths.runtimePath,
     extra: { DSH_HOME: home, npm_config_store_dir: join(paths.cache, 'pnpm-store'), npm_config_update_notifier: 'false' },
   })
   return run(paths.nodeBin, [paths.dshBin, ...args], { cwd: home, env, timeoutMs, onLine: log, signal })

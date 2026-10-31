@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- 新安装使用随包发布的完整依赖锁，固定 DSH、pnpm 及传递依赖的版本和官方完整性哈希；切换镜像时仍校验同一份锁。
+- 已安装的 v0.1 运行时不自动重装；重复安装直接复用正常运行时。缺失 pnpm、版本不符或损坏的就绪标记不再误报为可用。
+- New installations pin DSH, pnpm and their transitive dependencies using a shipped lockfile with official integrity hashes, including when downloading from a mirror.
+- Existing v0.1 runtimes remain intact. Repeated installation reuses a ready runtime; missing pnpm, mismatched versions and malformed readiness markers are detected.
+
 ## 0.1.0 — 2026-10-18
 
 第一个可安装的版本。钉死 DSH `0.2.1-rc.2`、Node `v24.22.0`、pnpm `11.28.6`。

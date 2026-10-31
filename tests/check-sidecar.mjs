@@ -8,7 +8,8 @@
 //     从网上真装一遍运行时（约 1.1 GB），走界面上「下载并启动」那条路由。
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -26,6 +27,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 const scratch = await mkdtemp(join(tmpdir(), 'dsh2forsion-e2e-'))
 const dataDir = join(scratch, 'plugin-data')
+console.log(`test data: ${dataDir}`)
 await mkdir(dataDir, { recursive: true })
 if (!fresh) {
   for (const sub of ['node', 'runtime']) await symlink(join(sourceRoot, sub), join(dataDir, sub), process.platform === 'win32' ? 'junction' : 'dir')
@@ -93,6 +95,16 @@ try {
       const s = await waitFor('runtime install', async () => { const v = await call('GET', '/status'); return !v.job.running && v }, 1_800_000)
       assert.equal(s.job.error, null, s.job.error)
       assert.equal(s.runtime.installed, true)
+      const markerFile = join(dataDir, 'runtime', DSH_VERSION, '.dsh2forsion-ready')
+      const marker = await readFile(markerFile, 'utf8')
+      const shippedLock = await readFile(join(pluginDir, 'runtime/package-lock.json'))
+      assert.equal(JSON.parse(marker).lockSha256, createHash('sha256').update(shippedLock).digest('hex'))
+      assert.deepEqual(await readFile(join(dataDir, 'runtime', DSH_VERSION, 'package-lock.json')), shippedLock)
+      // Repeating the install must leave the running runtime and its marker intact.
+      await call('POST', '/runtime/install')
+      const again = await waitFor('repeat install', async () => { const v = await call('GET', '/status'); return !v.job.running && v }, 120_000)
+      assert.equal(again.job.error, null)
+      assert.equal(await readFile(markerFile, 'utf8'), marker)
     })
   }
 

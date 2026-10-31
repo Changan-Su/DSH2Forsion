@@ -7,7 +7,7 @@ import { builtinModules } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BRIDGE_PACKAGE, DSH_VERSION, PLUGIN_ID } from '../src/engine/constants.mjs'
+import { BRIDGE_PACKAGE, DSH_VERSION, PLUGIN_ID, PNPM_VERSION } from '../src/engine/constants.mjs'
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..')
 const plugin = join(repo, 'plugin')
@@ -73,6 +73,29 @@ await it('compat data is for the pinned DSH version', async () => {
   const known = await json(join(engine, 'compat/known.json'))
   assert.equal(known.dsh, DSH_VERSION)
   for (const e of known.exemptions) assert.equal(known.plugins[e]?.exemption, true, `exemption ${e} is not a graded plugin`)
+})
+
+await it('runtime lock pins the complete DSH and pnpm tree to official integrity values', async () => {
+  const pkg = await json(join(engine, 'runtime/package.json'))
+  const lock = await json(join(engine, 'runtime/package-lock.json'))
+  assert.equal(lock.lockfileVersion, 3)
+  assert.deepEqual(pkg.dependencies, { '@deepseek-ai/dsh': DSH_VERSION, pnpm: PNPM_VERSION })
+  assert.deepEqual(lock.packages[''].dependencies, pkg.dependencies)
+  for (const [name, version] of Object.entries(pkg.dependencies)) {
+    assert.equal(lock.packages[`node_modules/${name}`].version, version)
+  }
+  for (const [path, pkg] of Object.entries(lock.packages)) {
+    if (!path) continue
+    assert.match(pkg.resolved, /^https:\/\/registry\.npmjs\.org\//, path)
+    assert.match(pkg.integrity, /^sha512-[A-Za-z0-9+/]+=*$/, path)
+    assert.ok(pkg.version && !pkg.link, path)
+  }
+  // Generating a lock on one OS must not discard the other supported native builds.
+  for (const os of ['darwin', 'linux', 'win32']) {
+    for (const cpu of ['x64', 'arm64']) {
+      assert.ok(Object.values(lock.packages).some(p => p.os?.includes(os) && p.cpu?.includes(cpu)), `${os}-${cpu}`)
+    }
+  }
 })
 
 await it('manifest text is bilingual and says it is not made by DeepSeek', async () => {

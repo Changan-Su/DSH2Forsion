@@ -1,12 +1,13 @@
 // 纯函数单测：工具改名、结果渲染、提示词挑选与截断、试启动判定、包名解析、环境白名单、平台映射。
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { DSH_VERSION, NODE_VERSION, PNPM_VERSION } from '../src/engine/constants.mjs'
 import { childEnv } from '../src/engine/env.mjs'
 import { layout, nodePlatform } from '../src/engine/layout.mjs'
 import { judgeTrial, specName } from '../src/engine/plugins.mjs'
-import { sources } from '../src/engine/runtime.mjs'
+import { installRuntime, runtimeInstalled, sources } from '../src/engine/runtime.mjs'
 import { Sidecar } from '../src/engine/sidecar.mjs'
 import { promptText, renderResult, tanguToolName, thirdPartySections } from '../src/engine/tools.mjs'
 
@@ -93,9 +94,68 @@ await it('platforms and layout', () => {
   assert.equal(nodePlatform('linux', 'ia32'), null)
   const w = layout('C:/r', 'win32')
   assert.match(w.nodeBin, /node\.exe$/)
-  assert.match(layout('/r', 'linux').nodeBin, /\/bin\/node$/)
+  assert.equal(layout('/r', 'linux').nodeBin, join('/r', 'node', NODE_VERSION, 'bin', 'node'))
   assert.deepEqual(sources('auto'), ['official', 'mirror'])
   assert.deepEqual(sources('mirror'), ['mirror'])
+})
+
+await it('runtime readiness rejects partial installs and preserves working legacy and locked runtimes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'd2f-runtime-'))
+  const paths = layout(root)
+  const marker = { dsh: DSH_VERSION, node: NODE_VERSION, pnpm: PNPM_VERSION }
+  try {
+    for (const file of [paths.nodeBin, paths.dshBin, paths.legacyPnpmBin]) {
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, 'placeholder')
+    }
+    assert.equal(runtimeInstalled(paths), false)
+    await writeFile(paths.runtimeMarker, '{broken')
+    assert.equal(runtimeInstalled(paths), false)
+    await writeFile(paths.runtimeMarker, JSON.stringify({ ...marker, dsh: 'wrong-version' }))
+    assert.equal(runtimeInstalled(paths), false)
+    await writeFile(paths.runtimeMarker, JSON.stringify(marker))
+    assert.equal(runtimeInstalled(paths), true)
+    // These are not executables: any attempted reinstall would fail the test.
+    await installRuntime(paths)
+    assert.equal(await readFile(paths.dshBin, 'utf8'), 'placeholder')
+    await writeFile(paths.runtimeMarker, JSON.stringify({ ...marker, lockSha256: 'locked' }))
+    assert.equal(runtimeInstalled(paths), false, 'a locked runtime must have local pnpm')
+    await mkdir(dirname(paths.pnpmBin), { recursive: true })
+    await writeFile(paths.pnpmBin, 'placeholder')
+    assert.equal(runtimeInstalled(paths), true)
+    await installRuntime(paths)
+    await rm(paths.dshBin)
+    assert.equal(runtimeInstalled(paths), false)
+    await assert.rejects(installRuntime(paths, { signal: AbortSignal.abort() }), { name: 'AbortError' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+await it('failed npm ci retries the pinned tree without marking ready or touching profile data', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'd2f-install-fail-'))
+  const paths = { ...layout(root), nodeBin: process.execPath, npmCli: join(root, 'fake-npm.cjs') }
+  try {
+    await mkdir(paths.runtimeDir, { recursive: true })
+    await mkdir(paths.home, { recursive: true })
+    await writeFile(join(paths.home, 'keep.txt'), 'user profile')
+    await writeFile(paths.runtimeMarker, '{}')
+    await writeFile(paths.npmCli, `
+      const fs = require('node:fs');
+      fs.appendFileSync('attempts.jsonl', JSON.stringify(process.argv.slice(2)) + '\\n');
+      console.error('simulated integrity failure');
+      process.exit(1);
+    `)
+    await assert.rejects(installRuntime(paths), /npm ci failed \(mirror\)/)
+    const attempts = (await readFile(join(paths.runtimeDir, 'attempts.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse)
+    assert.equal(attempts.length, 2)
+    for (const args of attempts) assert.deepEqual(args, ['ci', '--ignore-scripts', '--no-audit', '--no-fund'])
+    assert.deepEqual(await readFile(join(paths.runtimeDir, 'package-lock.json')), await readFile(new URL('../src/runtime/package-lock.json', import.meta.url)))
+    await assert.rejects(readFile(paths.runtimeMarker), { code: 'ENOENT' })
+    assert.equal(await readFile(join(paths.home, 'keep.txt'), 'utf8'), 'user profile')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 await it('a sidecar whose spawn fails asynchronously still stops at once (no hang)', async () => {
