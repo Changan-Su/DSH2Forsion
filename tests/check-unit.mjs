@@ -23,7 +23,7 @@ await it('tool names get the dsh__ prefix, are sanitized, capped and deduplicate
 })
 
 await it('results: text joined, errors prefixed once', () => {
-  assert.equal(renderResult({ isError: false, content: [{ type: 'text', text: 'a' }, { type: 'image' }, { type: 'text', text: 'b' }] }), 'a\nb')
+  assert.match(renderResult({ isError: false, content: [{ type: 'text', text: 'a' }, { type: 'image' }, { type: 'text', text: 'b' }] }), /^a\n\[MCP image not rendered:.*\n?b$/)
   assert.equal(renderResult({ isError: false, content: [] }), '(no text output)')
   assert.equal(renderResult({ isError: true, content: [{ type: 'text', text: 'Error: bad' }] }), 'Error: bad')
   assert.equal(renderResult({ isError: true, content: [{ type: 'text', text: 'bad' }] }), 'Error: bad')

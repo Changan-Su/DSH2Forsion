@@ -10,6 +10,9 @@ import { ensureBridge, ensureProfile } from './profile.mjs'
 import { installRuntime, runtimeInstalled } from './runtime.mjs'
 import { Sidecar } from './sidecar.mjs'
 import { PROVIDER_ID, ToolBridge } from './tools.mjs'
+import { NativeExecution } from './native-execution.mjs'
+import { createModelProvider } from './models.mjs'
+import { prepareNativeCompatibility } from '../native-client/install.mjs'
 
 const LOG_LIMIT = 300
 
@@ -44,6 +47,9 @@ export function createPlugin() {
 
       // 停用后（宿主启动时会先激活全部、再停掉被关的）不许再起 DSH：每个 await 之后都看一眼
       let disposed = false
+      let nativeError = null
+      const native = ctx.sdk.runs?.context ? new NativeExecution({ runs: ctx.sdk.runs, file: join(paths.root, 'native-executions.json'), enabled: () => !disposed && store.isPluginEnabledSync(PLUGIN_ID) }) : null
+      if (native) await native.ready
       const offline = new Error('DSH2Forsion is turned off')
       let starting = null
       // 起 sidecar 前把 profile 和桥备好；起来以后同步一次工具表
@@ -53,8 +59,13 @@ export function createPlugin() {
         if (disposed) throw offline
         if (await ensureBridge(paths, paths.home, bridgeDir, { log })) log('bridge installed / updated')
         if (disposed) throw offline
+        nativeError = null
+        try { await prepareNativeCompatibility({ profileDir: paths.profileDir, log }) }
+        catch (error) { nativeError = String(error.message ?? error); log(`native adapter unavailable: ${nativeError}`) }
+        if (disposed) throw offline
         await sidecar.start()
         if (disposed) { await sidecar.stop(1000); throw offline }
+        if (native) await sidecar.bridge('/native/configure', { method: 'POST', body: JSON.stringify(await native.listen()) })
         await plugins.saveLastGood().catch(error => log(`save last good failed: ${error.message}`))
         await tools.refresh()
         if (disposed) return
@@ -86,6 +97,7 @@ export function createPlugin() {
       // 限时 5 秒：正在起的那次最多等 2 秒（等不到也没关系，它每一步都会看 disposed），sidecar 给 1.5 秒优雅退出
       const shutdown = async () => {
         disposed = true
+        await native?.dispose()
         await plugins.dispose()
         if (starting) await Promise.race([starting.catch(() => {}), new Promise(r => setTimeout(r, 2000))])
         await stop(1500)
@@ -96,12 +108,15 @@ export function createPlugin() {
       // Old hosts keep tools working; they must not claim native skill support.
       if (ctx.registerSkillProvider) ctx.registerSkillProvider({
         id: 'dsh',
-        list: async ({ signal } = {}) => {
+        list: async ({ signal, cwd } = {}) => {
           if (disposed || !store.isPluginEnabledSync(PLUGIN_ID) || sidecar.state !== 'running') return []
-          const { skills } = await sidecar.bridge('/skills', { signal })
+          const { skills } = await sidecar.bridge(`/skills${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''}`, { signal })
           return disposed ? [] : skills
         },
       })
+      if (ctx.registerModelProvider) ctx.registerModelProvider(createModelProvider({ sidecar,
+        enabled: () => !disposed && store.isPluginEnabledSync(PLUGIN_ID),
+      }))
 
       ctx.registerPlugin({
         id: PLUGIN_ID,
@@ -147,9 +162,23 @@ export function createPlugin() {
         pluginJob: plugins.busy,
         settings: settings(),
         nativeSkills: { supported: typeof ctx.registerSkillProvider === 'function' },
+        nativeViews: { supported: Boolean(native), error: nativeError },
+        nativeModels: { supported: typeof ctx.registerModelProvider === 'function' },
       })
 
       ctx.registerScopedRoutes(router => {
+        router.post('/native/view', (req, res) => send(res, async () => {
+          if (!native) throw new Error('Update Forsion to use native plugin views')
+          if (sidecar.state !== 'running') await start()
+          if (nativeError) throw new Error(nativeError)
+          // Every new view must name the current authenticated project session.
+          // A saved ledger is recovery evidence, not permission to pick an old project.
+          await native.configure(req.user?.userId, req.body)
+          const view = await sidecar.bridge('/native/view', { method: 'POST', body: JSON.stringify({ panelKey: req.body?.panelKey || 'task-board' }) })
+          return { ...view, url: new URL(view.path, sidecar.base).href }
+        }))
+        router.get('/native/events', (req, res) => send(res, () => native?.pendingEvents(req.user?.userId) ?? { events: [] }))
+        router.post('/native/ack', (req, res) => send(res, () => native?.acknowledge(req.user?.userId, req.body)))
         router.get('/status', (_req, res) => send(res, status))
         router.get('/logs', (_req, res) => send(res, () => ({ lines: [...logs], sidecar: sidecar.lines.slice(-200) })))
         router.post('/runtime/install', (_req, res) => send(res, () => {

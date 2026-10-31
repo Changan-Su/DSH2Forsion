@@ -30,6 +30,22 @@ function installedVersion(home, name) {
   try { return JSON.parse(readFileSync(join(profileDir(home), 'node_modules', ...name.split('/'), 'package.json'), 'utf8')).version } catch { return null }
 }
 
+// file: dependencies may be rebuilt without changing the public package version.
+// Compare shipped files, not just package.json, so a stale bridge cannot pass boot.
+async function bridgeFilesMatch(source, installed) {
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    if (entry.name === 'node_modules') continue
+    const from = join(source, entry.name), to = join(installed, entry.name)
+    if (entry.isDirectory()) { if (!await bridgeFilesMatch(from, to)) return false }
+    else if (entry.isFile()) {
+      let actual
+      try { actual = await readFile(to) } catch (error) { if (error.code === 'ENOENT') return false; throw error }
+      if (!(await readFile(from)).equals(actual)) return false
+    }
+  }
+  return true
+}
+
 /**
  * 桥随插件包发（bridgeDir），装成 file: 依赖。同版本号的 file: 包 pnpm 判「已是最新」不更新，
  * 所以版本不同就先 remove 再 add（M0 踩过）。
@@ -37,10 +53,12 @@ function installedVersion(home, name) {
 export async function ensureBridge(paths, home, bridgeDir, opts = {}) {
   const want = JSON.parse(await readFile(join(bridgeDir, 'package.json'), 'utf8')).version
   const have = installedVersion(home, BRIDGE_PACKAGE)
-  if (have === want) return false
+  const installed = join(profileDir(home), 'node_modules', BRIDGE_PACKAGE)
+  if (have === want && await bridgeFilesMatch(bridgeDir, installed)) return false
   if (have) await dsh(paths, home, ['plugin', '--profile', PROFILE, 'remove', BRIDGE_PACKAGE], opts)
   const r = await dsh(paths, home, ['plugin', '--profile', PROFILE, 'add', '--ignore-scripts', `file:${bridgeDir}`], opts)
   if (r.code !== 0) throw new Error(`bridge install failed: ${r.out.slice(-600)}`)
+  if (!await bridgeFilesMatch(bridgeDir, installed)) throw new Error('Installed bridge differs from the shipped build')
   return true
 }
 

@@ -6,22 +6,22 @@
   "apiVersion": 1,
   "minAppVersion": "2.13.4",
   "isDesktopOnly": true,
-  "description": "让 Tangu 使用 DeepSeek Harness（DSH）插件的工具和技能，并提供 DSH 诊断入口。原生技能需要新版宿主支持。兼容 DeepSeek Harness，非 DeepSeek 官方出品。",
-  "descriptionEn": "Use DeepSeek Harness (DSH) plugin tools and skills in Tangu, with a DSH diagnostics view. Native skills require host support. Compatible with DeepSeek Harness; not made or endorsed by DeepSeek.",
+  "description": "把 DSH 工具、技能与模型来源接入 Tangu，把原版插件面板接入 Forsion。完整能力需要新版本机宿主。兼容 DeepSeek Harness，非 DeepSeek 官方出品。",
+  "descriptionEn": "Use DSH tools, skills and model sources in Tangu, and original plugin panels in Forsion. Full support requires an updated local host. Compatible with DeepSeek Harness; not made or endorsed by DeepSeek.",
   "main": "main.js",
   "onboarding": {
-    "intro": "第一次打开 DSH Space 时要下载运行时（约 1.1 GB 磁盘），之后插件在 DSH Space 或本页安装。",
+    "intro": "首次使用会下载兼容运行时（约 1.1 GB 磁盘）。在本页安装插件，从 Tangu 项目会话进入原版插件面板。",
     "steps": [
-      { "title": "打开 DSH Space", "description": "左侧 Ribbon 出现「DSH」。第一次打开会说明要下载什么、从哪里下载，你点了才开始。" },
-      { "title": "装插件", "description": "在本页输入 npm 包名安装：先在临时副本里试装、试启动，通过了才装进来。也可以在 DSH Space 的「插件」页里浏览。" },
-      { "title": "在 Tangu 里用", "description": "DSH 插件的工具以 dsh__ 开头出现在 Tangu 的工具表里，每次调用都会先问你。" }
+      { "title": "准备运行时", "description": "左侧 Ribbon 打开「DSH」。首次使用会说明下载内容与来源，你点击后才开始。" },
+      { "title": "安装插件", "description": "在本页输入 npm 包名。先在临时副本试装、试启动，通过后再安装。" },
+      { "title": "打开项目面板", "description": "先打开 Tangu 项目会话，再选择任务看板、技能管理或 Git Graph。看板任务由 Tangu 执行与审批，工具调用仍需原生批准。" }
     ],
     "en": {
-      "intro": "The first time you open the DSH Space it downloads the runtime (about 1.1 GB of disk). After that, install plugins from the DSH Space or from this page.",
+      "intro": "First use downloads the compatibility runtime (about 1.1 GB of disk). Install plugins here, then open their original panels from a Tangu project session.",
       "steps": [
-        { "title": "Open the DSH Space", "description": "DSH appears on the left Ribbon. The first time you open it, it explains what it will download and from where, and starts only when you click." },
-        { "title": "Install plugins", "description": "Enter an npm package name on this page. It is installed and started in a scratch copy first, and added only if that works. You can also browse the Plugins page in the DSH Space." },
-        { "title": "Use them in Tangu", "description": "Tools from DSH plugins appear in Tangu with names starting with dsh__. Tangu asks you before every call." }
+        { "title": "Prepare the runtime", "description": "Open DSH from the Ribbon. First use explains the download and its source, and starts only when you click." },
+        { "title": "Install plugins", "description": "Enter an npm package name here. It is installed and started in a scratch copy first, and added only if that works." },
+        { "title": "Open a project panel", "description": "Open a Tangu project session, then select TaskBoard, Skills Manager or Git Graph. Tasks execute with Tangu approvals and history; tool calls still require native approval." }
       ]
     }
   }

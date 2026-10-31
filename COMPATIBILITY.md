@@ -4,6 +4,14 @@
 
 ## 评级口径
 
+当前开发桥为 **0.1.6**，新增原生三面板、看板 Tangu 执行、项目技能、MCP、模型来源及按原生会话隔离的工具/推理上下文。需要含 Genesis #392 / #395 的 managed 本机宿主构建，尚未发布桌面版本。下面的 M0 与早期 GUI 数字保留其原始范围；本轮复跑命令与限定场景见 [SCENARIOS.md](SCENARIOS.md)。
+
+Development bridge **0.1.6** adds three original plugin panels, native Tangu task execution, project skills, MCP, model sources and session-scoped attribution. It requires a managed local host containing Genesis #392/#395, not yet a desktop release. Historical results below retain their original scope. [SCENARIOS.md](SCENARIOS.md) documents the new independent checks.
+
+`dsh-context@0.73.2` 与 `@michengai/dsh-archive-manager@1.1.2` 依赖 DSH 完整历史/归档，当前不映射 Tangu 历史。Billion 的真实压缩验证需单独证明代理接管、输入压缩与事实召回；归属基础设施通过不等于所有上下文插件透明兼容，详见 [context-adapters.md](compat/context-adapters.md)。
+
+Full DSH history/archive consumers are not transparent Tangu history adapters. Billion requires independent evidence of interception, transformed input and recall. Session attribution alone does not establish general context-extension compatibility.
+
 | 评级 | 含义 |
 |---|---|
 | 装载通过 | 装得上、DSH 起得来、它自己的宿主条目和浏览器条目都激活了、首页没有报错 |

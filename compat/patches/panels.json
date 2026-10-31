@@ -1,0 +1,7 @@
+{
+  "patchVersion": 1,
+  "panels": {
+    "skills-manager": { "package": "@michengai/dsh-skills-manager", "version": "1.2.24", "license": "Apache-2.0", "clientSha256": "4bbe039830ee2fb61b624ef0b1c70973ce388bb6738ca29610db0f4d38b983ab", "slot": "main", "entryKey": "skills-manager" },
+    "git-graph": { "package": "@linxin666/dsh-client-ui-git-graph", "version": "0.4.7", "license": "Apache-2.0", "clientSha256": "0859b8c161a85aba803b2a3d1d68dc46109d1866733ec4b45eb02e62e6b87e3d", "slot": "main", "entryKey": "forsion-git-graph" }
+  }
+}

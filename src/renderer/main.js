@@ -1,24 +1,41 @@
 // DSH2Forsion 界面半身。宿主用 new Function('ctx', source) 求值：本文件就是 setup 体，不许顶层 import / export。
-// 三样东西：DSH Space（整幅嵌 DSH 自己的 Web 客户端）、插件详情页里的管理面板、两条命令。
+// Native plugin views, runtime management, and a separate legacy diagnostics surface.
 // 所有动作都经 ctx.tangu.request 交给包里的引擎半身（tangu-plugins/dsh2forsion）。
 const ENGINE = 'dsh2forsion'
 const PARTITION = 'persist:dsh2forsion'
 // DSH Space 盯 sidecar 的间隔：装、卸、回滚插件后它会换端口重启，旧页面就死了
 const WATCH_MS = 2000
 
+// Spaces own independent active sessions. Entering a plugin-only Space clears
+// agentStatus().sessionId, so remember the last selection during this activation.
+// This is never restored from disk; the engine revalidates ownership and cwd.
+let selectedSessionId = ctx.tangu?.agentStatus?.()?.sessionId || null
+ctx.tangu?.subscribeAgentStatus?.(status => {
+  if (status?.sessionId) selectedSessionId = status.sessionId
+})
+
 const STRINGS = {
   zh: {
-    spaceTitle: 'DSH',
+    spaceTitle: 'DSH 插件',
+    diagnosticsTitle: 'DSH 诊断',
+    nativeTitle: 'Task Board',
+    nativeSkillsTitle: '技能管理',
+    nativeGitTitle: 'Git Graph',
+    nativePanel: '插件面板',
+    nativeHint: '先在 Tangu 侧栏选择一个项目会话及模型，再打开此视图。任务使用 Tangu 的会话、审批与历史记录。',
+    nativeSessionRequired: '请先在 Tangu 侧栏选择项目会话。固定会话窗格不会改变活动项目。',
+    nativeOpen: '打开插件面板',
+    nativeUnsupported: '当前宿主缺少原生视图接口，请更新 Forsion。',
     manageTitle: 'DeepSeek Harness 运行时',
-    cmdOpen: 'DSH2Forsion：打开 DSH Space',
+    cmdOpen: 'DSH2Forsion：打开原生插件视图',
     cmdManage: 'DSH2Forsion：管理运行时与插件',
     noEngine: '没连上本机引擎。DSH2Forsion 只能在桌面端的本机引擎上运行。',
     loading: '正在连接 DSH…',
     starting: '正在启动 DSH，第一次大约要十几秒…',
     restarting: 'DSH 正在重启（装、卸插件后会自动重启）…',
     stoppedNote: 'DSH 已停止。',
-    onboardTitle: '在 Forsion 里运行 DeepSeek Harness 插件',
-    onboardBody: 'DSH2Forsion 会在你的电脑上起一个 DeepSeek Harness（DSH）后台进程，把它的界面放进这个 Space，并把 DSH 插件的工具交给 Tangu。',
+    onboardTitle: '在 Tangu 与 Forsion 中使用 DSH 插件',
+    onboardBody: '兼容运行时把 DSH 插件的工具与技能交给 Tangu，把已适配的插件面板交给 Forsion。任务由 Tangu 执行，审批和历史保留在原生会话中。',
     onboardDownload: '第一次要下载官方 Node.js {node} 和 DSH {dsh} 运行时，共约 300 MB；装好后占约 1.1 GB 磁盘，运行时常驻约 400 MB 内存。',
     onboardSource: '下载来源：nodejs.org 与 npm 官方源，失败时改用国内镜像 npmmirror（可在插件设置里改）。',
     onboardTrust: 'DSH 插件是在你电脑上以完整权限运行的代码：能读写文件、联网、运行命令。DSH2Forsion 把它们放在单独的进程里，但这不是沙箱。只装你信任的插件。',
@@ -42,7 +59,7 @@ const STRINGS = {
     start: '启动',
     stop: '停止',
     restart: '重启',
-    openSpace: '打开 DSH Space',
+    openSpace: '打开插件视图',
     install: '安装',
     remove: '移除',
     rollback: '撤销上一次改动',
@@ -75,17 +92,26 @@ const STRINGS = {
     tangu: 'Tangu 的模型能看到 {tools} 个 DSH 工具、{sections} 段 DSH 插件说明。',
   },
   en: {
-    spaceTitle: 'DSH',
+    spaceTitle: 'DSH plugins',
+    diagnosticsTitle: 'DSH diagnostics',
+    nativeTitle: 'Task Board',
+    nativeSkillsTitle: 'Skills Manager',
+    nativeGitTitle: 'Git Graph',
+    nativePanel: 'Plugin panel',
+    nativeHint: 'Select a project session and model from the Tangu sidebar, then open this view. Tasks use native Tangu sessions, approvals, and history.',
+    nativeSessionRequired: 'Select a project session from the Tangu sidebar first. A pinned session pane does not change the active project.',
+    nativeOpen: 'Open plugin panel',
+    nativeUnsupported: 'Update Forsion to use the native view interface.',
     manageTitle: 'DeepSeek Harness runtime',
-    cmdOpen: 'DSH2Forsion: Open DSH Space',
+    cmdOpen: 'DSH2Forsion: Open native plugin views',
     cmdManage: 'DSH2Forsion: Manage runtime and plugins',
     noEngine: 'Not connected to the local engine. DSH2Forsion only runs on the desktop app with its local engine.',
     loading: 'Connecting to DSH…',
     starting: 'Starting DSH. The first start takes a few seconds…',
     restarting: 'DSH is restarting. It restarts after plugins are installed or removed…',
     stoppedNote: 'DSH is stopped.',
-    onboardTitle: 'Run DeepSeek Harness plugins in Forsion',
-    onboardBody: 'DSH2Forsion runs a DeepSeek Harness (DSH) process on your computer, shows its interface in this Space, and offers the tools of DSH plugins to Tangu.',
+    onboardTitle: 'Use DSH plugins in Tangu and Forsion',
+    onboardBody: 'The compatibility runtime offers DSH plugin tools and skills to Tangu and adapted plugin panels to Forsion. Tangu executes tasks and keeps approvals and history in native sessions.',
     onboardDownload: 'The first start downloads official Node.js {node} and the DSH {dsh} runtime, about 300 MB in total. Once installed it takes about 1.1 GB of disk and about 400 MB of memory while running.',
     onboardSource: 'Downloads come from nodejs.org and the official npm registry, falling back to the npmmirror mirror in China. You can change this in the plugin settings.',
     onboardTrust: 'DSH plugins are code that runs on your computer with full permissions: they can read and write files, use the network and run commands. DSH2Forsion keeps them in a separate process, but that is not a sandbox. Only install plugins you trust.',
@@ -109,7 +135,7 @@ const STRINGS = {
     start: 'Start',
     stop: 'Stop',
     restart: 'Restart',
-    openSpace: 'Open DSH Space',
+    openSpace: 'Open plugin views',
     install: 'Install',
     remove: 'Remove',
     rollback: 'Undo the last change',
@@ -178,6 +204,8 @@ const CSS = `
 .d2f-input { flex: 1; min-width: 220px; font: inherit; padding: 5px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg); color: var(--text); }
 .d2f-result { display: grid; gap: 6px; }
 .d2f-result ul { margin: 0; padding-left: 18px; color: var(--text-muted); font: 11.5px/1.45 var(--font-mono); overflow-wrap: anywhere; }
+.d2f-native-toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.d2f-native-toolbar select { padding: 4px 8px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 `
 
 function h(tag, attrs = {}, ...children) {
@@ -212,11 +240,116 @@ function hostAppearance() {
   return { theme: mode === 'dark' ? 'dark' : 'light', locale: lang() }
 }
 
-// ── DSH Space ───────────────────────────────────────────────────────────────
+// The main Space mounts only the selected third-party slot, with native execution.
+ctx.registerView({
+  id: 'space', title: t('spaceTitle'), icon: 'boxes',
+  mount(el) {
+    let alive = true, generation = 0, disposeSurface = null, mountedBase = null, busy = false, pendingOpen = false
+    let panelKey = 'task-board'
+    const panelTitles = { 'task-board': 'nativeTitle', 'skills-manager': 'nativeSkillsTitle', 'git-graph': 'nativeGitTitle' }
+    const root = h('div', { class: 'd2f d2f-space' })
+    withStyle(root)
+    const body = h('div', { class: 'd2f-surface' })
+    const picker = h('select', { 'aria-label': t('nativePanel'), onchange: () => { panelKey = picker.value; void open() } },
+      ...Object.entries(panelTitles).map(([value, key]) => h('option', { value }, t(key))))
+    root.append(h('div', { class: 'd2f-native-toolbar' }, picker), body); el.append(root)
+    const clear = () => { disposeSurface?.(); disposeSurface = null; mountedBase = null; body.replaceChildren() }
+    const notice = (message, retry = true) => {
+      clear()
+      body.append(h('div', { class: 'd2f-center' }, h('div', { class: 'd2f-card' }, h('h2', {}, t(panelTitles[panelKey])),
+        h('p', { class: 'd2f-muted' }, t('nativeHint')), message ? h('p', { class: 'd2f-error' }, message) : null,
+        h('div', { class: 'd2f-row' }, retry ? h('button', { class: 'd2f-btn primary', onclick: () => void open() }, t('nativeOpen')) : null,
+          h('button', { class: 'd2f-btn', onclick: () => ctx.app?.openSettings?.('fplugin:dsh2forsion') }, t('openManage'))))))
+    }
+    const appearance = () => { void call('/appearance', { method: 'POST', body: hostAppearance() }).catch(() => {}) }
+    const observer = new MutationObserver(appearance)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] })
+    const offLocale = ctx.subscribeLocale?.(() => {
+      picker.setAttribute('aria-label', t('nativePanel'))
+      for (const option of picker.options) option.textContent = t(panelTitles[option.value])
+      appearance()
+    })
+    const open = async () => {
+      if (busy) { pendingOpen = true; return }
+      const mine = ++generation
+      busy = true; clear(); body.append(h('div', { class: 'd2f-center' }, t('loading')))
+      try {
+        const status = await call('/status')
+        if (!alive || mine !== generation) return
+        if (!status.runtime?.installed) {
+          clear()
+          body.append(h('div', { class: 'd2f-center' }, h('div', { class: 'd2f-card' },
+            h('h2', {}, t('onboardTitle')), h('p', {}, t('onboardBody')),
+            h('p', {}, t('onboardDownload', { node: status.nodeVersion, dsh: status.dshVersion })), h('p', { class: 'd2f-muted' }, t('onboardSource')),
+            h('p', { class: 'd2f-muted' }, t('onboardTrust')),
+            h('button', { class: 'd2f-btn primary', onclick: async event => {
+              event.currentTarget.disabled = true
+              event.currentTarget.textContent = t('installing')
+              try {
+                await call('/runtime/install', { method: 'POST' })
+                while (alive) {
+                  const next = await call('/status')
+                  if (next.job?.error) throw new Error(next.job.error)
+                  if (!next.job?.running) { await open(); break }
+                  await sleep(1000)
+                }
+              } catch (error) { if (alive) notice(String(error.message || error)) }
+            } }, t('onboardButton')))))
+          return
+        }
+        const sessionId = ctx.tangu?.agentStatus?.()?.sessionId || selectedSessionId
+        if (!sessionId) throw new Error(t('nativeSessionRequired'))
+        const { url } = await call('/native/view', { method: 'POST', body: { panelKey, sessionId, models: ctx.tangu?.models?.() || [] } })
+        if (!alive || mine !== generation) return
+        clear()
+        if (ctx.ui?.mountWebSurface) {
+          const handle = ctx.ui.mountWebSurface(body, { url, partition: PARTITION })
+          disposeSurface = typeof handle === 'function' ? handle : () => handle?.dispose?.()
+        } else {
+          // Current Forsion Desktop exposes its Electron webview carrier to
+          // plugin DOM. The dedicated slot URL is the same in either carrier.
+          const view = document.createElement('webview')
+          view.setAttribute('partition', PARTITION)
+          view.setAttribute('src', url)
+          body.append(view)
+          disposeSurface = () => view.remove()
+        }
+        mountedBase = new URL(url).origin
+        appearance()
+      } catch (error) { if (alive && mine === generation) notice(String(error.message || error)) }
+      finally { if (mine === generation) busy = false; if (alive && pendingOpen) { pendingOpen = false; void open() } }
+    }
+    let timer
+    const poll = async () => {
+      try {
+        if (mountedBase && !busy) {
+          const { events } = await call('/native/events')
+          for (const event of events || []) {
+            if (!alive) break
+            let error
+            try {
+              if (event.type !== 'openSession' || !ctx.tangu?.openSession) throw new Error(t('nativeUnsupported'))
+              await ctx.tangu.openSession(event.sessionId)
+            } catch (e) { error = String(e.message || e) }
+            await call('/native/ack', { method: 'POST', body: { eventId: event.eventId, error } })
+          }
+          const status = await call('/status')
+          if (alive && status.sidecar?.state === 'running' && status.sidecar.base !== mountedBase) await open()
+          else if (alive && status.sidecar?.state === 'failed') notice(status.sidecar.error)
+        }
+      } catch { /* Transient restart; the next poll rechecks the actual sidecar state. */ }
+      if (alive) timer = setTimeout(poll, 800)
+    }
+    void open(); timer = setTimeout(poll, 800)
+    return () => { alive = false; generation++; clearTimeout(timer); observer.disconnect(); offLocale?.(); clear(); root.remove() }
+  },
+})
+
+// Separate diagnostics entry retained for troubleshooting the compatibility runtime.
 
 ctx.registerView({
-  id: 'space',
-  title: t('spaceTitle'),
+  id: 'diagnostics',
+  title: t('diagnosticsTitle'),
   icon: 'boxes',
   mount(el) {
     let alive = true

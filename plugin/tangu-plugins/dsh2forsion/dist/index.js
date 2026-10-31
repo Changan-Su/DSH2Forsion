@@ -2,7 +2,7 @@
 
 // src/engine/index.mjs
 import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";
-import { join as join6 } from "node:path";
+import { join as join8 } from "node:path";
 
 // src/engine/constants.mjs
 var DSH_VERSION = "0.2.1-rc.2";
@@ -220,13 +220,34 @@ function installedVersion(home, name) {
     return null;
   }
 }
+async function bridgeFilesMatch(source, installed) {
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    if (entry.name === "node_modules") continue;
+    const from = join2(source, entry.name), to = join2(installed, entry.name);
+    if (entry.isDirectory()) {
+      if (!await bridgeFilesMatch(from, to)) return false;
+    } else if (entry.isFile()) {
+      let actual;
+      try {
+        actual = await readFile(to);
+      } catch (error) {
+        if (error.code === "ENOENT") return false;
+        throw error;
+      }
+      if (!(await readFile(from)).equals(actual)) return false;
+    }
+  }
+  return true;
+}
 async function ensureBridge(paths, home, bridgeDir, opts = {}) {
   const want = JSON.parse(await readFile(join2(bridgeDir, "package.json"), "utf8")).version;
   const have = installedVersion(home, BRIDGE_PACKAGE);
-  if (have === want) return false;
+  const installed = join2(profileDir(home), "node_modules", BRIDGE_PACKAGE);
+  if (have === want && await bridgeFilesMatch(bridgeDir, installed)) return false;
   if (have) await dsh(paths, home, ["plugin", "--profile", PROFILE, "remove", BRIDGE_PACKAGE], opts);
   const r = await dsh(paths, home, ["plugin", "--profile", PROFILE, "add", "--ignore-scripts", `file:${bridgeDir}`], opts);
   if (r.code !== 0) throw new Error(`bridge install failed: ${r.out.slice(-600)}`);
+  if (!await bridgeFilesMatch(bridgeDir, installed)) throw new Error("Installed bridge differs from the shipped build");
   return true;
 }
 async function userPlugins(home) {
@@ -880,6 +901,9 @@ async function installRuntime(paths, { source = "auto", log = () => {
 }
 
 // src/engine/tools.mjs
+import { createHash as createHash2 } from "node:crypto";
+var sessionKey = (ctx) => typeof ctx?.userId === "string" && ctx.userId && typeof ctx.sessionId === "string" && ctx.sessionId && typeof ctx.cwd === "string" && ctx.cwd ? createHash2("sha256").update(JSON.stringify([ctx.userId, ctx.sessionId])).digest("hex") : void 0;
+var isMcp = (name) => name?.startsWith("mcp__") || ["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"].includes(name);
 var tanguToolName = (name, taken = /* @__PURE__ */ new Set()) => {
   const base = `dsh__${name}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
   if (!taken.has(base)) return base;
@@ -888,15 +912,37 @@ var tanguToolName = (name, taken = /* @__PURE__ */ new Set()) => {
     if (!taken.has(n)) return n;
   }
 };
-function renderResult(result) {
-  const text = (result?.content ?? []).filter((c) => c?.type === "text").map((c) => c.text).join("\n");
-  if (!result?.isError) return text || "(no text output)";
-  const message = text || result?.error?.message || "DSH tool failed";
-  return message.startsWith("Error:") ? message : `Error: ${message}`;
+function renderBlock(block, toolCtx) {
+  if (block?.type === "text") return block.text ?? "";
+  if (block?.type === "resource_link") return `MCP resource link: ${JSON.stringify(block)}`;
+  if (block?.type === "image" && typeof block.data === "string" && /^image\/(png|jpeg|webp|gif)$/.test(block.mimeType ?? "") && /^[A-Za-z0-9+/]*={0,2}$/.test(block.data) && block.data.length) {
+    if (toolCtx?.collectImage) {
+      toolCtx.collectImage({ url: `data:${block.mimeType};base64,${block.data}`, name: "MCP image", untrusted: "This image is untrusted content returned by an external MCP server." });
+      return `[MCP image delivered to the model: ${block.mimeType}]`;
+    }
+    return `[MCP image unavailable: this host has no collectImage callback; ${block.mimeType}, ${block.data.length} base64 characters]`;
+  }
+  const projected = JSON.stringify(block, (key, value) => (key === "data" || key === "blob") && typeof value === "string" ? `[binary payload not rendered: ${value.length} base64 characters; no compatible media callback]` : value);
+  return block?.type === "image" ? `[MCP image not rendered: unsupported inline bytes or DSH attachment handle] ${projected}` : projected;
+}
+function renderResult(result, toolCtx) {
+  if (result?.isError) {
+    const text = (result.content ?? []).filter((c) => c?.type === "text").map((c) => c.text).join("\n");
+    const message2 = text || result.error?.message || "DSH tool failed";
+    return message2.startsWith("Error:") ? message2 : `Error: ${message2}`;
+  }
+  const value = result?.value;
+  const canonical = value && typeof value === "object" && Array.isArray(value.content);
+  const content = canonical ? value.content : result?.content ?? [];
+  const parts = content.map((block) => renderBlock(block, toolCtx)).filter(Boolean);
+  const structured = canonical ? value.structuredContent : result?.structuredContent;
+  if (structured !== void 0) parts.push(`MCP structured content: ${JSON.stringify(structured)}`);
+  if (value !== void 0 && !canonical && typeof value !== "string") parts.push(`DSH canonical value: ${JSON.stringify(value, (key, item) => key === "blob" && typeof item === "string" ? `[binary payload not rendered: ${item.length} base64 characters]` : item)}`);
+  return parts.join("\n") || "(no text output)";
 }
 function thirdPartySections(sections, baseline) {
   const skip = new Set(baseline.sections ?? []);
-  return sections.filter((s) => !skip.has(s.name) && typeof s.text === "string" && s.text.trim()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  return sections.filter((s) => (s.name === "mcp-resource-servers" || !skip.has(s.name)) && typeof s.text === "string" && s.text.trim()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 }
 function promptText(sections) {
   if (!sections.length) return "";
@@ -908,16 +954,18 @@ function promptText(sections) {
 ${body}`;
 }
 var ToolBridge = class {
-  /** @param {{ sidecar: import('./sidecar.mjs').Sidecar, baseline: () => any, enabled: () => boolean, log: (l: string) => void }} deps */
   constructor(deps) {
     this.deps = deps;
     this.schemas = [];
     this.sections = [];
     this.timer = null;
+    this.revision = 0;
+    this.refreshRevision = 0;
   }
   async refresh() {
     const { sidecar, baseline } = this.deps;
-    if (sidecar.state !== "running") {
+    const revision = ++this.refreshRevision;
+    if (sidecar.state !== "running" || !this.deps.enabled()) {
       this.schemas = [];
       this.sections = [];
       return;
@@ -925,16 +973,20 @@ var ToolBridge = class {
     try {
       const b = baseline();
       const skip = new Set(b.tools ?? []);
-      const { tools } = await sidecar.bridge("/tools");
-      this.schemas = (tools ?? []).filter((t) => !skip.has(t.name));
-      const { sections } = await sidecar.bridge("/prompt");
-      this.sections = thirdPartySections(sections ?? [], b);
+      const [{ tools }, { sections }] = await Promise.all([sidecar.bridge("/tools"), sidecar.bridge("/prompt")]);
+      if (revision !== this.refreshRevision || sidecar.state !== "running" || !this.deps.enabled()) return;
+      this.schemas = (tools ?? []).filter((t) => !skip.has(t.name) && !isMcp(t.name));
+      this.sections = thirdPartySections(sections ?? [], b).filter((s) => s.name !== "mcp-resource-servers" && !s.name.startsWith("mcp:"));
     } catch (error) {
+      if (revision === this.refreshRevision) {
+        this.schemas = [];
+        this.sections = [];
+      }
       this.deps.log(`tool refresh failed: ${error.message}`);
     }
   }
   startPolling(ms = 3e4) {
-    this.stopPolling();
+    if (this.timer) clearInterval(this.timer);
     this.timer = setInterval(() => {
       void this.refresh();
     }, ms);
@@ -943,55 +995,722 @@ var ToolBridge = class {
   stopPolling() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.revision++;
+    this.refreshRevision++;
+    this.schemas = [];
+    this.sections = [];
   }
-  /** ToolProvider.tools()：绝不能抛（一个 provider 抛错会拖垮所有 run 的工具装配）。 */
   toolDefs(isEnabledFor) {
     try {
       if (!this.deps.enabled()) return [];
-      const taken = /* @__PURE__ */ new Set();
-      return this.schemas.map((t) => {
+      const make = (name, description, parameters, execute) => ({
+        name,
+        isEnabledFor,
+        definition: { type: "function", function: { name, description, parameters } },
+        capabilities: { sideEffect: "unknown", approval: "always", automationSafe: false },
+        execute
+      });
+      const scoped = [
+        make("dsh_mcp_catalog", "Discover currently visible DSH MCP tools, input schemas and resource servers in this project. A listed name is not proof of package ownership. Call before dsh_mcp_call.", { type: "object", properties: {} }, (_args, ctx) => this.catalog(ctx)),
+        make("dsh_mcp_call", "Call one exact tool name from dsh_mcp_catalog in this project. The live scoped registry and native approvals remain authoritative.", { type: "object", properties: { name: { type: "string" }, arguments: { type: "object" } }, required: ["name"] }, (args, ctx) => this.callMcp(args, ctx))
+      ];
+      const taken = new Set(scoped.map((t) => t.name));
+      return [...scoped, ...this.schemas.map((t) => {
         const name = tanguToolName(t.name, taken);
         taken.add(name);
-        return {
-          name,
-          isEnabledFor,
-          definition: {
-            type: "function",
-            function: {
-              name,
-              description: `${t.description ?? ""}
-(DeepSeek Harness plugin tool. It runs in the DSH sidecar, outside Tangu's file policy and checkpoints.)`.trim(),
-              parameters: t.parameters ?? { type: "object", properties: {} }
-            }
-          },
-          capabilities: { sideEffect: "unknown", approval: "always", automationSafe: false },
-          execute: (args, toolCtx) => this.execute(t.name, args, toolCtx)
-        };
-      });
+        return make(name, `${t.description ?? ""}
+(DeepSeek Harness sidecar tool, outside Tangu's file policy and checkpoints.)`.trim(), t.parameters ?? { type: "object", properties: {} }, (args, ctx) => this.execute(t.name, args, ctx));
+      })];
     } catch {
       return [];
     }
   }
+  async snapshot(toolCtx) {
+    if (!this.deps.enabled() || this.deps.sidecar.state !== "running") throw new Error("DeepSeek Harness plugin or runtime is not active");
+    const query = new URLSearchParams();
+    if (toolCtx?.cwd !== void 0) query.set("cwd", toolCtx.cwd);
+    const key = sessionKey(toolCtx);
+    if (key) query.set("sessionKey", key);
+    const snapshot = await this.deps.sidecar.bridge(`/mcp/catalog${query.size ? `?${query}` : ""}`, { signal: toolCtx?.signal });
+    if (!this.deps.enabled() || this.deps.sidecar.state !== "running") throw new Error("DeepSeek Harness plugin or runtime is no longer active");
+    toolCtx?.signal?.throwIfAborted();
+    return snapshot;
+  }
+  async catalog(toolCtx) {
+    try {
+      return JSON.stringify(await this.snapshot(toolCtx));
+    } catch (error) {
+      return `Error: DSH MCP discovery failed: ${error.message}`;
+    }
+  }
+  async callMcp(args, toolCtx) {
+    try {
+      if (typeof args?.name !== "string") throw new Error("An exact listed MCP tool name is required");
+      const { tools } = await this.snapshot(toolCtx);
+      if (!tools?.some((tool) => tool.name === args.name)) throw new Error("MCP tool is not available in this project");
+      return this.execute(args.name, args.arguments, toolCtx);
+    } catch (error) {
+      return `Error: DSH MCP call failed: ${error.message}`;
+    }
+  }
   async execute(dshName, args, toolCtx) {
     const { sidecar } = this.deps;
-    if (sidecar.state !== "running") return "Error: the DeepSeek Harness runtime is not running. Open the DSH Space in Forsion to start it.";
+    if (!this.deps.enabled() || sidecar.state !== "running") return "Error: the DeepSeek Harness plugin or runtime is not active.";
     try {
-      const body = { name: dshName, arguments: args ?? {}, approved: true, cwd: toolCtx?.cwd };
+      const revision = this.revision;
+      const body = { name: dshName, arguments: args ?? {}, approved: true, cwd: toolCtx?.cwd, sessionKey: sessionKey(toolCtx) };
       const { result } = await sidecar.bridge("/tools/execute", { method: "POST", body: JSON.stringify(body), signal: toolCtx?.signal });
-      return renderResult(result);
+      if (!this.deps.enabled() || sidecar.state !== "running" || revision !== this.revision) return "Error: DeepSeek Harness activation changed during this call.";
+      toolCtx?.signal?.throwIfAborted();
+      return renderResult(result, toolCtx);
     } catch (error) {
       return `Error: DSH2Forsion bridge call failed: ${error.message}`;
     }
   }
   promptSection() {
     try {
-      return this.deps.enabled() ? promptText(this.sections) : "";
+      return this.deps.enabled() ? [promptText(this.sections), "Use dsh_mcp_catalog to discover live MCP tools and resource servers for this project, then dsh_mcp_call with an exact listed name. Media limitations are reported explicitly."].filter(Boolean).join("\n\n") : "";
     } catch {
       return "";
     }
   }
 };
 var PROVIDER_ID = `plugin:${PLUGIN_ID}`;
+
+// src/engine/native-execution.mjs
+import { createHash as createHash3, randomBytes as randomBytes2, randomUUID, timingSafeEqual } from "node:crypto";
+import { createServer } from "node:http";
+import { mkdir as mkdir4, readFile as readFile4, realpath, rename as rename2, stat as stat2, writeFile as writeFile3 } from "node:fs/promises";
+import { basename, dirname, isAbsolute } from "node:path";
+var terminal = /* @__PURE__ */ new Set(["succeeded", "failed", "cancelled"]);
+var id = (kind, value) => {
+  const h = createHash3("sha256").update(`dsh2forsion:${kind}:${value}`).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
+};
+var message = (error) => String(error?.message ?? error);
+var required = (value, name, max = 512) => {
+  if (typeof value !== "string" || !value.trim() || value.length > max) throw new Error(`Invalid ${name}`);
+  return value;
+};
+var NativeExecution = class {
+  constructor({ runs, file, enabled = () => true, navigationTimeoutMs = 15e3 }) {
+    this.runs = runs;
+    this.file = file;
+    this.enabled = enabled;
+    this.navigationTimeoutMs = navigationTimeoutMs;
+    this.data = { version: 1, userId: null, context: null, projects: {}, executions: {} };
+    this.queue = Promise.resolve();
+    this.locks = /* @__PURE__ */ new Map();
+    this.events = /* @__PURE__ */ new Map();
+    this.secret = randomBytes2(32).toString("hex");
+    this.disposed = false;
+    this.server = null;
+    this.ready = this.load();
+  }
+  async load() {
+    let text;
+    try {
+      text = await readFile4(this.file, "utf8");
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+    const data = JSON.parse(text);
+    if (data?.version !== 1 || !data.projects || !data.executions || typeof data.projects !== "object" || typeof data.executions !== "object" || Array.isArray(data.projects) || Array.isArray(data.executions)) throw new Error("Invalid native task ledger; refusing to overwrite it");
+    for (const [key, record] of Object.entries(data.executions)) {
+      if (!record || record.executionId !== key || !record.sessionId || !record.runId || !record.intent || !data.userId) throw new Error("Invalid native task record");
+    }
+    this.data = data;
+  }
+  check(userId) {
+    if (this.disposed || !this.enabled()) throw new Error("Native compatibility is disabled");
+    if (!this.runs?.context || !this.runs?.start) throw new Error("Update Forsion to use native task execution");
+    if (userId !== void 0 && (!userId || this.data.userId && this.data.userId !== userId)) throw new Error("Native view belongs to another local user");
+  }
+  async save(change) {
+    const work = this.queue.then(async () => {
+      this.check();
+      const next = structuredClone(this.data);
+      const result = change(next);
+      await mkdir4(dirname(this.file), { recursive: true });
+      const temp = `${this.file}.${randomUUID()}.tmp`;
+      await writeFile3(temp, JSON.stringify(next, null, 2), { mode: 384 });
+      this.check();
+      await rename2(temp, this.file);
+      this.data = next;
+      return result;
+    });
+    this.queue = work.catch(() => {
+    });
+    return work;
+  }
+  async project(path) {
+    if (typeof path !== "string" || !isAbsolute(path)) throw new Error("Select an absolute project directory in Tangu");
+    const cwd = await realpath(path);
+    if (!(await stat2(cwd)).isDirectory()) throw new Error("Project is not a directory");
+    return { id: id("project", process.platform === "win32" ? cwd.toLowerCase() : cwd), path: cwd, name: basename(cwd) || cwd };
+  }
+  async configure(userId, { sessionId, models = [] } = {}) {
+    await this.ready;
+    this.check(userId);
+    const current = await this.runs.context(required(sessionId, "active Tangu session"), userId);
+    const workspace = await this.project(current.cwd);
+    const catalog = (Array.isArray(models) ? models : []).slice(0, 1e3).filter((m) => typeof m?.id === "string" && m.id.length < 512).map((m) => ({ id: m.id, name: String(m.name || m.id).slice(0, 200), ...typeof m.provider === "string" ? { provider: m.provider } : {} }));
+    if (current.modelId && !catalog.some((m) => m.id === current.modelId)) catalog.push({ id: current.modelId, name: current.modelId });
+    this.check(userId);
+    await this.save((data) => {
+      if (data.userId && data.userId !== userId) throw new Error("Native view belongs to another local user");
+      data.userId = userId;
+      data.projects[workspace.id] = workspace;
+      data.context = { ...current, cwd: workspace.path, workspace, models: catalog };
+    });
+    return this.context();
+  }
+  context() {
+    this.check();
+    const context = this.data.context;
+    if (!context || !this.data.userId) throw new Error("Open this view from a Tangu project session first");
+    return {
+      cwd: context.cwd,
+      workspace: context.workspace,
+      workspaces: Object.values(this.data.projects),
+      models: context.models,
+      defaultModelId: context.modelId,
+      currentSessionId: context.sessionId,
+      agentModes: [{ id: "tangu", name: "Tangu" }]
+    };
+  }
+  async exclusive(key, fn) {
+    const before = this.locks.get(key) || Promise.resolve();
+    const work = before.catch(() => {
+    }).then(fn);
+    this.locks.set(key, work);
+    try {
+      return await work;
+    } finally {
+      if (this.locks.get(key) === work) this.locks.delete(key);
+    }
+  }
+  record(payload) {
+    const executionId = payload.executionId ?? (String(payload.sessionId || "").startsWith("forsion-task:") ? payload.sessionId.slice(13) : null);
+    const record = executionId ? Object.hasOwn(this.data.executions, executionId) ? this.data.executions[executionId] : null : Object.values(this.data.executions).find((r) => r.sessionId === payload.sessionId && (!payload.runId || r.runId === payload.runId));
+    if (!record) throw new Error("Unknown native execution");
+    return record;
+  }
+  async startRecord(record) {
+    this.check();
+    if (record.cancelRequested) return { sessionId: record.sessionId, runId: record.runId };
+    const result = await this.runs.start({ ...record.intent, userId: this.data.userId, sessionId: record.sessionId, requestId: record.runId });
+    if (result.sessionId !== record.sessionId || result.runId !== record.runId) throw new Error("Native run identity mismatch");
+    await this.save((data) => {
+      data.executions[record.executionId].started = true;
+    });
+    return result;
+  }
+  async launch(payload) {
+    const executionId = required(payload.executionId, "execution ID");
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/.test(executionId) || ["constructor", "prototype", "__proto__"].includes(executionId)) throw new Error("Invalid execution ID");
+    return this.exclusive(executionId, async () => {
+      const context = this.context();
+      const workspace = await this.project(payload.cwd || context.cwd);
+      if (!this.data.projects[workspace.id] || payload.workspaceId && payload.workspaceId !== workspace.id) throw new Error("Project has not been selected in the native view");
+      if (payload.mode && payload.mode !== "tangu") throw new Error(`Unsupported agent mode: ${payload.mode}`);
+      const permission = payload.permission || "default";
+      if (!["default", "readonly", "read-only", "auto-edit", "workspace-write"].includes(permission)) throw new Error(`Unsupported permission mode: ${permission}`);
+      const modelId = payload.modelId || context.defaultModelId;
+      if (!modelId || !context.models.some((m) => m.id === modelId)) throw new Error("Select an available Tangu model");
+      const prompt = required(payload.prompt, "prompt", 1e5);
+      const resumed = payload.resumeExecutionId ? this.record({ executionId: required(payload.resumeExecutionId, "resume execution ID") }) : null;
+      if (resumed && resumed.intent.cwd !== workspace.path) throw new Error("Cannot resume a task in a different project");
+      const intent = {
+        prompt,
+        cwd: workspace.path,
+        modelId,
+        parentSessionId: context.currentSessionId,
+        title: String(payload.title || prompt).slice(0, 200),
+        readOnly: ["readonly", "read-only"].includes(permission),
+        ...payload.reasoningEffort ? { thinkingLevel: required(payload.reasoningEffort, "reasoning effort", 64) } : {}
+      };
+      const fingerprint = createHash3("sha256").update(JSON.stringify({ taskId: payload.taskId, prompt, cwd: intent.cwd, modelId, readOnly: intent.readOnly, thinkingLevel: intent.thinkingLevel, resumeExecutionId: payload.resumeExecutionId })).digest("hex");
+      let record = this.data.executions[executionId];
+      if (record && record.fingerprint !== fingerprint) throw new Error("Execution ID already used with different input");
+      if (!record) {
+        if (Object.keys(this.data.executions).length >= 1e4) throw new Error("Native task ledger is full");
+        record = {
+          executionId,
+          taskId: required(payload.taskId, "task ID"),
+          fingerprint,
+          intent,
+          sessionId: resumed?.sessionId || id("session", `${this.data.userId}:${executionId}`),
+          runId: id("run", `${this.data.userId}:${executionId}`),
+          started: false,
+          cancelRequested: false
+        };
+        await this.save((data) => {
+          data.executions[executionId] = record;
+        });
+      }
+      return this.startRecord(record);
+    });
+  }
+  async statusRecord(record, recover = true) {
+    this.check();
+    let result;
+    try {
+      result = await this.runs.status(record.runId, this.data.userId);
+    } catch (error) {
+      if (error.code !== "RUN_NOT_FOUND") throw error;
+      if (record.cancelRequested) return { state: "cancelled" };
+      if (recover && !record.started) {
+        await this.startRecord(record);
+        return this.statusRecord(this.data.executions[record.executionId], false);
+      }
+      return { state: "unknown", error: "Native run could not be found" };
+    }
+    if (record.cancelRequested && !["done", "error", "aborted"].includes(result.status)) {
+      await this.runs.stop(record.runId, this.data.userId);
+      result = await this.runs.status(record.runId, this.data.userId);
+    }
+    const state = { queued: "queued", running: "running", done: "succeeded", error: "failed", aborted: "cancelled" }[result.status] || "unknown";
+    return { state: !terminal.has(state) && result.waiting?.length ? "waiting" : state, summary: result.summary || "", error: result.error || void 0, waiting: result.waiting || [] };
+  }
+  async cancel(payload) {
+    const initial = this.record(payload);
+    return this.exclusive(initial.executionId, async () => {
+      await this.save((data) => {
+        data.executions[initial.executionId].cancelRequested = true;
+      });
+      const record = this.data.executions[initial.executionId];
+      try {
+        await this.runs.stop(record.runId, this.data.userId);
+      } catch (error) {
+        if (error.code !== "RUN_NOT_FOUND") throw error;
+      }
+      const status = await this.statusRecord(record, false);
+      return { ...status, settled: terminal.has(status.state) };
+    });
+  }
+  async invoke({ adapter, version, op, payload = {} } = {}) {
+    await this.ready;
+    this.check();
+    if (adapter !== "task-board" || version !== 1) throw new Error("Unsupported native adapter protocol");
+    if (op === "context") return this.context();
+    this.context();
+    if (op === "launch") return this.launch(payload);
+    if (op === "status") return this.exclusive(this.record(payload).executionId, () => this.statusRecord(this.record(payload)));
+    if (op === "cancel") return this.cancel(payload);
+    if (op === "list") return { known: true, items: await Promise.all(Object.values(this.data.executions).map(async (r) => ({ executionId: r.executionId, sessionId: r.sessionId, runId: r.runId, ...await this.exclusive(r.executionId, () => this.statusRecord(this.data.executions[r.executionId])) }))) };
+    if (op === "createWorkspace") {
+      const workspace = await this.project(payload.path);
+      await this.save((data) => {
+        data.projects[workspace.id] = workspace;
+      });
+      return workspace;
+    }
+    if (op === "openSession") {
+      let sessionId;
+      if (!payload.executionId && payload.sessionId === this.data.context.sessionId) {
+        await this.runs.context(payload.sessionId, this.data.userId);
+        sessionId = payload.sessionId;
+      } else {
+        const record = this.record(payload);
+        await this.runs.status(record.runId, this.data.userId);
+        sessionId = record.sessionId;
+      }
+      return new Promise((resolve, reject) => {
+        const eventId = randomUUID();
+        const timer = setTimeout(() => {
+          this.events.delete(eventId);
+          reject(new Error("The Forsion view did not acknowledge navigation"));
+        }, this.navigationTimeoutMs);
+        this.events.set(eventId, { eventId, type: "openSession", sessionId, timer, resolve, reject });
+      });
+    }
+    throw new Error(`Unsupported native operation: ${op}`);
+  }
+  async pendingEvents(userId) {
+    await this.ready;
+    this.check(userId);
+    return { events: [...this.events.values()].map(({ eventId, type, sessionId }) => ({ eventId, type, sessionId })) };
+  }
+  async acknowledge(userId, { eventId, error } = {}) {
+    await this.ready;
+    this.check(userId);
+    const event = this.events.get(eventId);
+    if (!event) throw new Error("Navigation request has expired");
+    this.events.delete(eventId);
+    clearTimeout(event.timer);
+    if (error) event.reject(new Error(String(error).slice(0, 500)));
+    else event.resolve({ opened: true });
+    return { ok: true };
+  }
+  async listen() {
+    await this.ready;
+    this.check();
+    if (this.server) return this.endpoint;
+    this.server = createServer(async (req, res) => {
+      const respond = (code, body) => {
+        if (!res.destroyed) {
+          res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
+          res.end(JSON.stringify(body));
+        }
+      };
+      try {
+        const header = req.headers["x-dsh2forsion-native"];
+        if (req.headers.origin || typeof header !== "string" || header.length !== this.secret.length || !timingSafeEqual(Buffer.from(header), Buffer.from(this.secret))) return respond(401, { error: "unauthorized" });
+        if (req.method !== "POST" || req.url !== "/invoke") return respond(404, { error: "not found" });
+        const chunks = [];
+        let bytes = 0;
+        for await (const chunk of req) {
+          bytes += chunk.length;
+          if (bytes > 1 << 20) return respond(413, { error: "body too large" });
+          chunks.push(chunk);
+        }
+        respond(200, await this.invoke(JSON.parse(Buffer.concat(chunks).toString("utf8"))));
+      } catch (error) {
+        respond(400, { error: message(error) });
+      }
+    });
+    await new Promise((resolve, reject) => {
+      this.server.once("error", reject);
+      this.server.listen(0, "127.0.0.1", resolve);
+    });
+    this.endpoint = { url: `http://127.0.0.1:${this.server.address().port}/invoke`, secret: this.secret };
+    return this.endpoint;
+  }
+  async dispose() {
+    this.disposed = true;
+    for (const event of this.events.values()) {
+      clearTimeout(event.timer);
+      event.reject(new Error("Native view was disabled"));
+    }
+    this.events.clear();
+    if (this.server) {
+      this.server.closeAllConnections();
+      await new Promise((resolve) => this.server.close(resolve));
+    }
+    await this.queue;
+  }
+};
+
+// src/engine/models.mjs
+import { createHash as createHash4 } from "node:crypto";
+function counter(value, label) {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`DSH returned invalid ${label} token usage`);
+  return value;
+}
+function modelUsage(usage) {
+  if (!usage) throw new Error("DSH model returned no authoritative token usage");
+  const cached = usage.cacheReadTokens === void 0 ? void 0 : counter(usage.cacheReadTokens, "cached");
+  const written = usage.cacheWriteTokens === void 0 ? void 0 : counter(usage.cacheWriteTokens, "cache write");
+  return {
+    prompt_tokens: counter(counter(usage.inputTokens, "input") + (cached ?? 0) + (written ?? 0), "aggregate prompt"),
+    completion_tokens: counter(usage.outputTokens, "output"),
+    ...cached === void 0 ? {} : { cached_tokens: cached },
+    ...written === void 0 ? {} : { cache_write_tokens: written },
+    ...usage.reasoningTokens === void 0 ? {} : { reasoning_tokens: counter(usage.reasoningTokens, "reasoning") }
+  };
+}
+function createModelProvider({ sidecar, enabled = () => true, fetchImpl = fetch }) {
+  const check = () => {
+    if (!enabled() || sidecar.state !== "running" || !sidecar.base) throw new Error("DSH model source is not running");
+  };
+  return {
+    id: "dsh",
+    async listModels({ signal }) {
+      check();
+      const value = await sidecar.bridge("/models", { signal });
+      check();
+      return value.models;
+    },
+    async resolveModel(modelId, { signal }) {
+      check();
+      const value = await sidecar.bridge("/models/resolve", { method: "POST", body: JSON.stringify({ modelId }), signal });
+      check();
+      return value.model;
+    },
+    async stream(input) {
+      check();
+      input.signal.throwIfAborted();
+      const { signal, onToken, onReasoning, onToolCallDelta, onResponseStart, context, cacheKey, ...wire } = input;
+      if (typeof context?.sessionId === "string" && context.sessionId && typeof context.userId === "string" && context.userId) {
+        wire.sessionKey = createHash4("sha256").update(JSON.stringify([context.userId, context.sessionId])).digest("hex");
+        wire.cwd = typeof context.cwd === "string" ? context.cwd : null;
+      }
+      const response = await fetchImpl(`${sidecar.base}/forsion-bridge/models/stream`, { method: "POST", headers: { "content-type": "application/json", "x-dsh2forsion-secret": sidecar.secret }, body: JSON.stringify(wire), signal });
+      if (!response.ok || !response.body) throw new Error(`DSH model transport failed (${response.status})`);
+      onResponseStart?.();
+      const blocks = /* @__PURE__ */ new Map();
+      let usage, finish, buffer = "";
+      const blockAt = (index, type) => {
+        if (!blocks.has(index)) blocks.set(index, { type, text: "" });
+        return blocks.get(index);
+      };
+      const consume = (event) => {
+        if (event.type === "error") throw new Error(event.error || "DSH model inference failed");
+        if (event.type !== "chunk" || !event.chunk) throw new Error("Invalid DSH model stream frame");
+        const chunk = event.chunk;
+        if (finish) throw new Error("DSH model sent data after its terminal chunk");
+        if (chunk.type === "block-start") blockAt(chunk.index, chunk.blockType);
+        else if (chunk.type === "text-delta" || chunk.type === "reasoning-delta") {
+          const type = chunk.type === "text-delta" ? "text" : "reasoning";
+          if (typeof chunk.text !== "string") throw new Error("Invalid DSH text delta");
+          blockAt(chunk.index, type).text += chunk.text;
+          if (type === "text") onToken?.(chunk.text);
+          else onReasoning?.(chunk.text);
+        } else if (chunk.type === "tool-call-delta") {
+          if (typeof chunk.argumentsDelta !== "string") throw new Error("Invalid DSH tool-call delta");
+          const block = blockAt(chunk.index, "tool-call");
+          block.id = chunk.id || block.id;
+          block.name = chunk.name || block.name;
+          block.arguments = (block.arguments || "") + chunk.argumentsDelta;
+          onToolCallDelta?.({ id: block.id || "", name: block.name || "", args: block.arguments, argsDelta: chunk.argumentsDelta, argsLen: block.arguments.length });
+        } else if (chunk.type === "block-end") {
+          if (!chunk.block || !["text", "reasoning", "tool-call"].includes(chunk.block.type)) throw new Error("DSH returned an unsupported model content block");
+          blocks.set(chunk.index, { ...chunk.block });
+        } else if (chunk.type === "usage") usage = modelUsage(chunk.usage);
+        else if (chunk.type === "finish") {
+          if (!["stop", "tool-calls", "max-tokens"].includes(chunk.reason?.kind)) throw new Error("DSH inference did not finish successfully");
+          if (!usage) throw new Error("DSH inference is missing authoritative token usage");
+          finish = chunk.reason.kind;
+        } else throw new Error("Unknown DSH model chunk");
+      };
+      const decoder = new TextDecoder();
+      for await (const part of response.body) {
+        check();
+        signal.throwIfAborted();
+        buffer += decoder.decode(part, { stream: true });
+        if (buffer.length > 8 * 1024 * 1024) throw new Error("DSH model frame is too large");
+        let end;
+        while ((end = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, end);
+          buffer = buffer.slice(end + 1);
+          if (line.trim()) consume(JSON.parse(line));
+        }
+      }
+      buffer += decoder.decode();
+      if (buffer.trim()) consume(JSON.parse(buffer));
+      check();
+      signal.throwIfAborted();
+      if (!finish || !usage) throw new Error("DSH model stream ended before its complete result");
+      const ordered = [...blocks.values()];
+      const toolCalls = ordered.filter((b) => b.type === "tool-call").map((b) => {
+        if (!b.id || !b.name || typeof b.arguments !== "string") throw new Error("DSH returned an incomplete tool call");
+        return { id: b.id, type: "function", function: { name: b.name, arguments: b.arguments } };
+      });
+      if (wire.toolChoice === "none" && toolCalls.length) throw new Error("DSH returned tool calls despite toolChoice none");
+      return {
+        content: ordered.filter((b) => b.type === "text").map((b) => b.text).join(""),
+        reasoning: ordered.filter((b) => b.type === "reasoning").map((b) => b.text).join(""),
+        toolCalls,
+        usage,
+        finishReason: { stop: "stop", "tool-calls": "tool_calls", "max-tokens": "length" }[finish]
+      };
+    }
+  };
+}
+
+// src/native-client/install.mjs
+import { readFile as readFile6, writeFile as writeFile5, mkdir as mkdir6, rename as rename4, realpath as realpath3 } from "node:fs/promises";
+import { join as join7, relative as relative2, isAbsolute as isAbsolute3 } from "node:path";
+import { randomUUID as randomUUID3 } from "node:crypto";
+
+// src/native-client/patches.mjs
+import { createHash as createHash5 } from "node:crypto";
+var SPEC = Object.freeze({
+  package: "@linxin666/dsh-client-ui-task-board",
+  version: "0.4.7",
+  patchVersion: 2,
+  host: "863c7a195748802c7a54e099efef14c73af98477ad83aa4a56b8d0c490c9e209",
+  client: "364bad5afc8e770ed09bbfe1f320b7514229f85e050b62bf540a1949dbf62fe9",
+  layout: "686fb83c91c8ff8d03c365bb666ef34dacc3dd110eb768deacbc7998b885c8c1",
+  previousClient: Object.freeze(["d4ee137c2086d851d42c2c372c79860d4329e80fa0611a05d033c3b14f2359b6"])
+});
+var sha2562 = (value) => createHash5("sha256").update(value).digest("hex");
+function replaceOne(source, before, after) {
+  const first = source.indexOf(before);
+  if (first < 0 || source.indexOf(before, first + before.length) >= 0) throw new Error(`Native compatibility anchor mismatch: ${before.slice(0, 85)}`);
+  return source.slice(0, first) + after + source.slice(first + before.length);
+}
+function patchHost(source) {
+  if (sha2562(source) !== SPEC.host) throw new Error("Unsupported Task Board host artifact (version/hash guard)");
+  let out = replaceOne(
+    source,
+    "this.runner = new HostExecutionRunner(gateway, options.commandDispatcher, options.workspaceRegistry, void 0, options.ownerPeer);",
+    "this.runner = options.runnerFactory ? options.runnerFactory({ promptText }) : new HostExecutionRunner(gateway, options.commandDispatcher, options.workspaceRegistry, void 0, options.ownerPeer);"
+  );
+  out = replaceOne(out, 'const inject = [\n	"systemPrompt",', 'const inject = [\n	"nativeExecutionAdapters",\n	"systemPrompt",');
+  out = replaceOne(out, "const host = new TaskBoardHostService(ctx.typertGateway, {", 'const host = new TaskBoardHostService(ctx.typertGateway, {\nrunnerFactory: ctx.get("nativeExecutionAdapters")?.create("task-board"),');
+  out = replaceOne(out, "this.runner.launch(opened.task, {", "this.runner.launch(opened.task, {\nexecutionId: opened.execution.id,");
+  return "// Modified by DSH2Forsion: optional public native execution runner factory, 2026-10-31.\n" + out.replace(/^\/\/[#@]\s*sourceMappingURL=.*(?:\r?\n)?/gm, "");
+}
+function patchClient(source) {
+  if (sha2562(source) !== SPEC.client) throw new Error("Unsupported Task Board client artifact (version/hash guard)");
+  let out = replaceOne(source, "const controller = new BoardController({", 'const native = ctx.get("nativeExecutionClient");\nconst controller = new BoardController({');
+  out = replaceOne(out, 'const inject = [\n			"slots",', 'const inject = [\n			"nativeExecutionClient",\n			"slots",');
+  out = replaceOne(out, "current: () => mainViewSessionId(sessions.list.getSnapshot().byId),", "current: () => native?.enabled ? native.currentSession() : mainViewSessionId(sessions.list.getSnapshot().byId),");
+  out = replaceOne(out, "open: (id) => ctx.uiWorkspace.openSession(id),", "open: (id) => native?.enabled ? native.openSession(id) : ctx.uiWorkspace.openSession(id),");
+  out = replaceOne(out, "panel: { select: (panelId) => {", "panel: { select: (panelId) => {\nif (native?.enabled && panelId === null) { native.openCurrentSession(); return; }");
+  out = replaceOne(out, "const pushWorkspaceOptions = () => {", "const pushWorkspaceOptions = () => {\nif (native?.enabled) { void native.refresh(controller); return; }");
+  out = replaceOne(out, "const pushModelOptions = async () => {", "const pushModelOptions = async () => {\nif (native?.enabled) { await native.refresh(controller); return; }");
+  out = replaceOne(out, "return { workspaceId: (await workspaces.create({ path })).workspaceId };", "return { workspaceId: native?.enabled ? (await native.createWorkspace(path)).id : (await workspaces.create({ path })).workspaceId };");
+  out = replaceOne(out, "const pushPresetOptions = async (presetRemote) => {", 'const pushPresetOptions = async (presetRemote) => {\nif (ctx.get("nativeExecutionClient")?.enabled) return;');
+  out = replaceOne(out, "controller.start();\n				clientService.attach(controller);\n				const disposers = [];", "controller.start();\n				clientService.attach(controller);\n				const disposers = [];\nif (native?.enabled) { native.bind(controller); disposers.push(() => native.unbind(controller)); }");
+  return "// Modified by DSH2Forsion: public native context and navigation feed, 2026-10-31.\n" + out.replace(/^\/\/[#@]\s*sourceMappingURL=.*(?:\r?\n)?/gm, "");
+}
+
+// src/native-client/panels.mjs
+import { readFile as readFile5, writeFile as writeFile4, mkdir as mkdir5, rename as rename3, realpath as realpath2 } from "node:fs/promises";
+import { join as join6, relative, isAbsolute as isAbsolute2 } from "node:path";
+import { randomUUID as randomUUID2 } from "node:crypto";
+var once = (source, before, after) => {
+  const i = source.indexOf(before);
+  if (i < 0 || source.indexOf(before, i + before.length) >= 0) throw new Error(`Native panel anchor changed: ${before.slice(0, 80)}`);
+  return source.slice(0, i) + after + source.slice(i + before.length);
+};
+var PANEL_PATCHES = Object.freeze({
+  "skills-manager": { package: "@michengai/dsh-skills-manager", version: "1.2.24", sha256: "4bbe039830ee2fb61b624ef0b1c70973ce388bb6738ca29610db0f4d38b983ab" },
+  "git-graph": { package: "@linxin666/dsh-client-ui-git-graph", version: "0.4.7", sha256: "0859b8c161a85aba803b2a3d1d68dc46109d1866733ec4b45eb02e62e6b87e3d" }
+});
+function patchPanel(panel, source) {
+  const spec = PANEL_PATCHES[panel];
+  if (!spec || sha2562(source) !== spec.sha256) throw new Error("Native panel original version/hash guard failed");
+  let out = source;
+  if (panel === "skills-manager") {
+    out = once(out, 'var Us=["slots","locale"];', 'var Us=["slots","locale","nativeExecutionClient"];');
+    out = once(out, "if(b&&g){", 'if(b&&(g||globalThis.__FORSION_NATIVE_VIEW__?.descriptor.id==="skills-manager")){');
+  } else {
+    out = once(out, 'const inject = [\n			"slots",', 'const inject = [\n			"nativeExecutionClient",\n			"slots",');
+    out = once(out, "const cwdOf = (sessionId) => sessionId === void 0 ? void 0 : sessions.list.getSnapshot().byId[sessionId]?.cwd;", 'const cwdOf = (sessionId) => scope.get("nativeExecutionClient")?.enabled ? scope.get("nativeExecutionClient").currentCwd() : sessionId === void 0 ? void 0 : sessions.list.getSnapshot().byId[sessionId]?.cwd;');
+    out = once(out, "let mounted = false;", `if (globalThis.__FORSION_NATIVE_VIEW__) scope.slots.inject("main", () => scope.slots.register({
+      name:"main", key:"forsion-git-graph", locale:NS, inject:()=>({nativeGit:injected()})
+    }, function ForsionNativeGitGraph({nativeGit,t}) {
+      const ReactNative=require("react"); const native=scope.get("nativeExecutionClient");
+      const graph=ReactNative.useCallback(async limit=>{await native.refresh();return nativeGit.graph(void 0,limit);},[nativeGit.graph]);
+      return ReactNative.createElement("section",{"data-forsion-git-graph":""},ReactNative.createElement(GraphDialog,{graph,onClose:()=>native.openCurrentSession(),t}));
+    }));
+    let mounted = false;`);
+  }
+  return `// Modified by DSH2Forsion 2026-10-31: explicit public-slot native context adapter; original UI retained (Apache-2.0).
+` + out.replace(/^\/\/[#@]\s*sourceMappingURL=.*(?:\r?\n)?/gm, "");
+}
+async function atomic(file, value) {
+  const tmp = `${file}.forsion-${randomUUID2()}.tmp`;
+  await writeFile4(tmp, value);
+  await rename3(tmp, file);
+}
+async function prepareNativePanels({ profileDir: profileDir2, log = () => {
+} }) {
+  const prepared = [];
+  for (const [panel, spec] of Object.entries(PANEL_PATCHES)) {
+    let root;
+    try {
+      root = await realpath2(join6(profileDir2, "node_modules", ...spec.package.split("/")));
+    } catch (e) {
+      if (e.code === "ENOENT") continue;
+      throw e;
+    }
+    const rel = relative(await realpath2(profileDir2), root);
+    if (rel.startsWith("..") || isAbsolute2(rel)) throw new Error("Native panel package is outside the isolated profile");
+    const pkgFile = join6(root, "package.json"), pkg = JSON.parse(await readFile5(pkgFile, "utf8"));
+    if (pkg.name !== spec.package || pkg.version !== spec.version) throw new Error(`Unsupported ${panel} native panel version: ${pkg.version}`);
+    if (!Array.isArray(pkg.dsh?.client?.inject)) throw new Error("Native panel client metadata changed");
+    const backup = join6(root, ".forsion-native-original"), saved = join6(backup, "client.js"), target = join6(root, "lib/client.js");
+    let original;
+    try {
+      original = await readFile5(saved, "utf8");
+    } catch (e) {
+      if (e.code !== "ENOENT") throw e;
+      original = await readFile5(target, "utf8");
+    }
+    const patched = patchPanel(panel, original), current = await readFile5(target, "utf8");
+    if (sha2562(current) !== spec.sha256 && sha2562(current) !== sha2562(patched)) throw new Error(`Unknown ${panel} modifications; refusing native adaptation`);
+    await mkdir5(backup, { recursive: true });
+    await writeFile4(saved, original, { flag: "wx" }).catch((e) => {
+      if (e.code !== "EEXIST") throw e;
+    });
+    await atomic(target, patched);
+    if (!pkg.dsh.client.inject.includes("dsh2forsion-bridge")) pkg.dsh.client.inject.push("dsh2forsion-bridge");
+    await atomic(pkgFile, JSON.stringify(pkg, null, 2) + "\n");
+    const noticeFile = join6(root, "NOTICE"), existing = await readFile5(noticeFile, "utf8").catch((e) => {
+      if (e.code === "ENOENT") return "";
+      throw e;
+    });
+    const note = `DSH2Forsion native compatibility adapter (2026-10-31): modified lib/client.js for a public main-slot entry and verified native context. Original ${spec.package}@${spec.version} UI and source retained under Apache-2.0; see LICENSE. Original authors do not endorse this adaptation.`;
+    if (!existing.includes(note)) await atomic(noticeFile, existing + (existing ? "\n" : "") + note + "\n");
+    await atomic(join6(root, ".forsion-native-compat.json"), JSON.stringify({ package: spec.package, version: spec.version, patchVersion: 1, clientSha256: sha2562(patched) }, null, 2) + "\n");
+    log(`native panel prepared: ${spec.package}@${spec.version}`);
+    prepared.push({ panel, package: spec.package, version: spec.version });
+  }
+  return prepared;
+}
+
+// src/native-client/install.mjs
+async function atomicFile(file, value) {
+  const tmp = `${file}.forsion-${randomUUID3()}.tmp`;
+  await writeFile5(tmp, value);
+  await rename4(tmp, file);
+}
+async function prepareTaskBoard({ profileDir: profileDir2, log = () => {
+} }) {
+  const entry = join7(profileDir2, "node_modules", "@linxin666", "dsh-client-ui-task-board");
+  let root;
+  try {
+    root = await realpath3(entry);
+  } catch (error) {
+    if (error.code === "ENOENT") return { patched: false };
+    throw error;
+  }
+  const rel = relative2(await realpath3(profileDir2), root);
+  if (rel.startsWith("..") || isAbsolute3(rel)) throw new Error("Native compatibility refuses a package outside the isolated profile");
+  const pkgFile = join7(root, "package.json");
+  const pkg = JSON.parse(await readFile6(pkgFile, "utf8"));
+  if (pkg.name !== SPEC.package || pkg.version !== SPEC.version) throw new Error(`Task Board native adapter supports only ${SPEC.version}; found ${pkg.version}`);
+  const injection = pkg.dsh?.client?.inject;
+  if (!Array.isArray(injection)) throw new Error("Task Board client metadata changed");
+  const backup = join7(root, ".forsion-native-original");
+  await mkdir6(backup, { recursive: true });
+  const plans = [];
+  for (const [file, name, transform, expected] of [["lib/index.js", "host.js", patchHost, SPEC.host], ["lib/client.js", "client.js", patchClient, SPEC.client]]) {
+    const target = join7(root, file), saved = join7(backup, name);
+    let original;
+    try {
+      original = await readFile6(saved, "utf8");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      original = await readFile6(target, "utf8");
+    }
+    if (sha2562(original) !== expected) throw new Error(`Task Board ${file} is not the audited original artifact`);
+    const patched = transform(original), current = await readFile6(target, "utf8");
+    const previous = file === "lib/client.js" ? SPEC.previousClient : [];
+    if (sha2562(current) !== expected && sha2562(current) !== sha2562(patched) && !previous.includes(sha2562(current))) throw new Error(`Task Board ${file} has unknown modifications; refusing native patch`);
+    plans.push({ target, saved, original, patched });
+  }
+  for (const plan of plans) {
+    await writeFile5(plan.saved, plan.original, { flag: "wx" }).catch((error) => {
+      if (error.code !== "EEXIST") throw error;
+    });
+    await atomicFile(plan.target, plan.patched);
+  }
+  if (!injection.includes("dsh2forsion-bridge")) injection.push("dsh2forsion-bridge");
+  await atomicFile(pkgFile, JSON.stringify(pkg, null, 2) + "\n");
+  const noticeFile = join7(root, "NOTICE");
+  const existing = await readFile6(noticeFile, "utf8").catch((error) => {
+    if (error.code === "ENOENT") return "";
+    throw error;
+  });
+  const notice = "DSH2Forsion native compatibility adapter (2026-10-31): modified lib/index.js and lib/client.js to add optional public execution/context adapters. Original Task Board remains Apache-2.0; see LICENSE. Original source and verified pre-patch artifacts are retained. No original authors endorse this adaptation.";
+  if (!existing.includes(notice)) await atomicFile(noticeFile, existing + (existing ? "\n" : "") + notice + "\n");
+  const record = { package: SPEC.package, version: SPEC.version, patchVersion: SPEC.patchVersion, files: Object.fromEntries(plans.map((p) => [relative2(root, p.target).replaceAll("\\", "/"), sha2562(p.patched)])) };
+  await atomicFile(join7(root, ".forsion-native-compat.json"), JSON.stringify(record, null, 2) + "\n");
+  log(`native adapter prepared: ${SPEC.package}@${SPEC.version}`);
+  return { patched: true, root, ...record };
+}
+async function prepareNativeCompatibility(options) {
+  const taskBoard = await prepareTaskBoard(options);
+  const panels = await prepareNativePanels(options);
+  return { ...taskBoard, panels };
+}
 
 // src/engine/index.mjs
 var LOG_LIMIT2 = 300;
@@ -1007,8 +1726,8 @@ function createPlugin() {
   return {
     async activate(ctx) {
       const paths = layout(ctx.paths.dataDir);
-      const bridgeDir = join6(ctx.paths.pluginDir, "dsh-bridge");
-      const compatDir = join6(ctx.paths.pluginDir, "compat");
+      const bridgeDir = join8(ctx.paths.pluginDir, "dsh-bridge");
+      const compatDir = join8(ctx.paths.pluginDir, "compat");
       const store = ctx.sdk.pluginStore;
       const settings = () => ({ autoStart: true, exposeTools: true, downloadSource: "auto", ...store.getScopeSettings(PLUGIN_ID, "global") ?? {} });
       const logs = [];
@@ -1016,8 +1735,8 @@ function createPlugin() {
         logs.push(`${(/* @__PURE__ */ new Date()).toISOString().slice(11, 19)} ${line}`);
         if (logs.length > LOG_LIMIT2) logs.splice(0, logs.length - LOG_LIMIT2);
       };
-      const baseline = () => readJson(join6(compatDir, `baseline-${DSH_VERSION}.json`), { tools: [], sections: [] });
-      const known = () => readJson(join6(compatDir, "known.json"), { plugins: {}, exemptions: [] });
+      const baseline = () => readJson(join8(compatDir, `baseline-${DSH_VERSION}.json`), { tools: [], sections: [] });
+      const known = () => readJson(join8(compatDir, "known.json"), { plugins: {}, exemptions: [] });
       const sidecar = new Sidecar(paths, { onState: (s) => log(`sidecar ${s.state}${s.error ? `: ${s.error}` : ""}`) });
       const tools = new ToolBridge({
         sidecar,
@@ -1027,6 +1746,9 @@ function createPlugin() {
       });
       const job = { name: null, running: false, error: null, lines: [] };
       let disposed = false;
+      let nativeError = null;
+      const native = ctx.sdk.runs?.context ? new NativeExecution({ runs: ctx.sdk.runs, file: join8(paths.root, "native-executions.json"), enabled: () => !disposed && store.isPluginEnabledSync(PLUGIN_ID) }) : null;
+      if (native) await native.ready;
       const offline = new Error("DSH2Forsion is turned off");
       let starting = null;
       const startNow = async () => {
@@ -1035,11 +1757,20 @@ function createPlugin() {
         if (disposed) throw offline;
         if (await ensureBridge(paths, paths.home, bridgeDir, { log })) log("bridge installed / updated");
         if (disposed) throw offline;
+        nativeError = null;
+        try {
+          await prepareNativeCompatibility({ profileDir: paths.profileDir, log });
+        } catch (error) {
+          nativeError = String(error.message ?? error);
+          log(`native adapter unavailable: ${nativeError}`);
+        }
+        if (disposed) throw offline;
         await sidecar.start();
         if (disposed) {
           await sidecar.stop(1e3);
           throw offline;
         }
+        if (native) await sidecar.bridge("/native/configure", { method: "POST", body: JSON.stringify(await native.listen()) });
         await plugins.saveLastGood().catch((error) => log(`save last good failed: ${error.message}`));
         await tools.refresh();
         if (disposed) return;
@@ -1082,6 +1813,7 @@ function createPlugin() {
       };
       const shutdown = async () => {
         disposed = true;
+        await native?.dispose();
         await plugins.dispose();
         if (starting) await Promise.race([starting.catch(() => {
         }), new Promise((r) => setTimeout(r, 2e3))]);
@@ -1090,12 +1822,16 @@ function createPlugin() {
       state = { shutdown };
       if (ctx.registerSkillProvider) ctx.registerSkillProvider({
         id: "dsh",
-        list: async ({ signal } = {}) => {
+        list: async ({ signal, cwd } = {}) => {
           if (disposed || !store.isPluginEnabledSync(PLUGIN_ID) || sidecar.state !== "running") return [];
-          const { skills } = await sidecar.bridge("/skills", { signal });
+          const { skills } = await sidecar.bridge(`/skills${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""}`, { signal });
           return disposed ? [] : skills;
         }
       });
+      if (ctx.registerModelProvider) ctx.registerModelProvider(createModelProvider({
+        sidecar,
+        enabled: () => !disposed && store.isPluginEnabledSync(PLUGIN_ID)
+      }));
       ctx.registerPlugin({
         id: PLUGIN_ID,
         name: "DSH2Forsion",
@@ -1142,9 +1878,21 @@ function createPlugin() {
         promptSections: tools.sections.map((s) => s.name),
         pluginJob: plugins.busy,
         settings: settings(),
-        nativeSkills: { supported: typeof ctx.registerSkillProvider === "function" }
+        nativeSkills: { supported: typeof ctx.registerSkillProvider === "function" },
+        nativeViews: { supported: Boolean(native), error: nativeError },
+        nativeModels: { supported: typeof ctx.registerModelProvider === "function" }
       });
       ctx.registerScopedRoutes((router) => {
+        router.post("/native/view", (req, res) => send(res, async () => {
+          if (!native) throw new Error("Update Forsion to use native plugin views");
+          if (sidecar.state !== "running") await start();
+          if (nativeError) throw new Error(nativeError);
+          await native.configure(req.user?.userId, req.body);
+          const view = await sidecar.bridge("/native/view", { method: "POST", body: JSON.stringify({ panelKey: req.body?.panelKey || "task-board" }) });
+          return { ...view, url: new URL(view.path, sidecar.base).href };
+        }));
+        router.get("/native/events", (req, res) => send(res, () => native?.pendingEvents(req.user?.userId) ?? { events: [] }));
+        router.post("/native/ack", (req, res) => send(res, () => native?.acknowledge(req.user?.userId, req.body)));
         router.get("/status", (_req, res) => send(res, status));
         router.get("/logs", (_req, res) => send(res, () => ({ lines: [...logs], sidecar: sidecar.lines.slice(-200) })));
         router.post("/runtime/install", (_req, res) => send(res, () => {
