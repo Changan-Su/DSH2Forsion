@@ -25,6 +25,10 @@ v0.1 does: download the runtime after you confirm, start and stop DSH, embed the
 
 Acceptance on 2026-10-31: 18/18 full GUI checks in real Windows Electron, 6/6 GPT 6 Luna checks, and 13/13 real sidecar checks with a reused runtime passed. Internal bridge `0.1.2` fixes persisted session restoration after DSH restarts, preserving the selected working directory. Existing profiles update the bridge without reinstalling the runtime.
 
+内部桥 `0.1.3` 进一步保护故障分支：指定工作目录的会话无法建立时停止调用并返回错误；等待会话期间取消也不会启动工具。恢复服务后可以重试，不会悄悄改在主目录执行。
+
+Internal bridge `0.1.3` also blocks execution if it cannot establish the requested working-directory context, or if the call is cancelled while waiting for that context. Calls can retry after the service recovers; they never silently fall back to the home directory when a directory was specified.
+
 ## 安装 / Install
 
 把本仓 `plugin/` 文件夹的内容放进 Forsion 的插件目录 `plugins/dsh2forsion/`（安装版是 `~/.forsion/plugins/`），重启 Forsion。需要 Forsion 桌面端 2.13.4 或更新，只支持桌面（macOS、Windows、Linux，x64 / arm64）。

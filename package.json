@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "build": "node build.mjs",
-    "check": "node tests/check-unit.mjs && node tests/check-renderer.mjs && node tests/check-build.mjs && npm run check:runtime-lock",
+    "check": "node tests/check-unit.mjs && node tests/check-bridge.mjs && node tests/check-renderer.mjs && node tests/check-build.mjs && npm run check:runtime-lock",
     "check:runtime-lock": "node tests/check-runtime-lock.mjs",
     "test:sidecar": "node tests/check-sidecar.mjs",
     "test:live": "node tests/check-live.mjs",

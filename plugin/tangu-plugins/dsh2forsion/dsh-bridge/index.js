@@ -35,7 +35,7 @@ export function apply(ctx) {
     kind: 'prefix',
     path: PREFIX,
     handler: (req, res) => handle(ctx, { secret, approved, agents }, req, res).catch(error => {
-      if (!res.headersSent) send(res, 500, { error: String(error?.message ?? error) })
+      if (!res.headersSent && !res.destroyed) send(res, 500, { error: String(error?.message ?? error) })
     }),
   })
   ctx.effect(() => () => { dispose(); void agents.dispose() })
@@ -71,12 +71,13 @@ async function handle(ctx, state, req, res) {
   if (req.method === 'POST' && path === `${PREFIX}/tools/execute`) {
     const body = JSON.parse(await readBody(req))
     const callId = `dsh2forsion-${randomUUID()}`
-    if (body.approved === true) state.approved.set(callId, Date.now() + APPROVAL_TTL_MS)
     const controller = new AbortController()
     // 调用方断开才中止。别挂在 req 的 close 上：新版 Node 里请求体读完就会触发它
     res.once('close', () => { if (!res.writableEnded) controller.abort() })
-    const agent = await state.agents.forCwd(body.cwd)
     try {
+      const agent = await state.agents.forCwd(body.cwd)
+      controller.signal.throwIfAborted()
+      if (body.approved === true) state.approved.set(callId, Date.now() + APPROVAL_TTL_MS)
       const result = await ctx.tools.execute({
         callId, name: String(body.name), arguments: body.arguments ?? {}, signal: controller.signal,
         ...(agent ? { agent } : {}),
@@ -125,7 +126,7 @@ async function applyAppearance(ctx, body) {
 }
 
 // 每个工作目录复用一个 DSH agent：工具的相对路径、工作目录与 DSH 侧审批都要靠 agent。
-// 建不出来（没有 agents 服务、建会话失败）就退回不带 agent 执行。
+// 调用方指定了目录时，必须成功建立上下文；不能悄悄退回用户主目录执行。
 class AgentPool {
   constructor(ctx, log) {
     this.ctx = ctx
@@ -134,18 +135,22 @@ class AgentPool {
   }
 
   async forCwd(cwd) {
-    if (typeof cwd !== 'string' || !isAbsolute(cwd)) return undefined
+    if (cwd === undefined) return undefined
+    if (typeof cwd !== 'string' || !isAbsolute(cwd)) throw new Error('DSH working directory must be an absolute path')
     if (!this.byCwd.has(cwd)) this.byCwd.set(cwd, this.open(cwd))
-    const handle = await this.byCwd.get(cwd)
-    if (handle === null) this.byCwd.delete(cwd)
-    return handle?.agent
+    const pending = this.byCwd.get(cwd)
+    try { return (await pending).agent }
+    catch (error) {
+      if (this.byCwd.get(cwd) === pending) this.byCwd.delete(cwd)
+      throw error
+    }
   }
 
   async open(cwd) {
     const registry = this.ctx.get('agents')
-    if (!registry) return null
     const sessionId = `dsh2forsion-${createHash('sha256').update(cwd).digest('hex').slice(0, 24)}`
     try {
+      if (!registry) throw new Error('agents service unavailable')
       let handle
       try { handle = await registry.create({ sessionId, meta: { cwd } }) }
       catch (error) {
@@ -153,12 +158,16 @@ class AgentPool {
         if (typeof registry.resume !== 'function') throw error
         handle = await registry.resume({ resumeSessionId: sessionId })
       }
+      if (!handle?.agent) {
+        await handle?.dispose?.()
+        throw new Error('agent handle unavailable')
+      }
       // 这些会话是桥自己的执行上下文，别出现在 DSH Space 的会话列表里
       try { await this.ctx.get('workspaceRegistry')?.archiveSession?.(sessionId) } catch { /* 归档失败只影响列表观感 */ }
       return handle
     } catch (error) {
       this.log.warn('bridge agent for %s unavailable: %s', cwd, error?.message ?? error)
-      return null
+      throw new Error(`Cannot establish DSH agent for working directory ${cwd}: ${error?.message ?? error}`)
     }
   }
 
