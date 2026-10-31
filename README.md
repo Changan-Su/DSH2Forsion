@@ -11,6 +11,7 @@ The compatibility runtime may remain an implementation detail. Users should keep
 | 宿主半身（服务、存储、后台任务） | 留在 sidecar 里，照 DSH 原样运行 |
 | 工具 | 进 Tangu 的工具表，名字前缀 `dsh__`，**每次调用都先问你**（完全放行档也问） |
 | 系统提示词分节 | 进 Tangu 的系统提示词（限 4000 字） |
+| DSH 管理目录中的技能 | 支持 `registerSkillProvider` 的 Tangu 宿主会列出并通过原生 `use_skill` 加载；保留插件归属，停用或删除即撤下 |
 | 界面（页面、面板、设置、插件市场） | 当前只提供整页 DSH 诊断入口；插件 WebUI 直接融入 Forsion 尚未完成 |
 
 逐项对照见 [MAPPING.md](MAPPING.md)，兼容数据见 [COMPATIBILITY.md](COMPATIBILITY.md)。
@@ -32,6 +33,10 @@ Acceptance on 2026-10-31: 18/18 full GUI checks in real Windows Electron, 6/6 GP
 Internal bridge `0.1.3` also blocks execution if it cannot establish the requested working-directory context, or if the call is cancelled while waiting for that context. Calls can retry after the service recovers; they never silently fall back to the home directory when a directory was specified.
 
 ## 安装 / Install
+
+原生技能适配使用内部桥 `0.1.5`，还需要包含 `registerSkillProvider` 接口的 Tangu 宿主构建（Genesis 分支 `codex/plugin-skill-providers`，尚未发布）。旧宿主继续提供工具，但不会宣称支持原生技能。仅导入本插件隔离目录 `DSH_HOME/skills/<name>/SKILL.md` 中允许模型调用的技能，不复制到用户技能目录。
+
+Native skills use bridge `0.1.5` and require a Tangu host build with `registerSkillProvider` (Genesis branch `codex/plugin-skill-providers`, not yet released). Older hosts keep tool support and report native skills as unsupported. Only model-invocable skills in this plugin's isolated `DSH_HOME/skills/<name>/SKILL.md` are exposed; user skill directories are never modified.
 
 把本仓 `plugin/` 文件夹的内容放进 Forsion 的插件目录 `plugins/dsh2forsion/`（安装版是 `~/.forsion/plugins/`），重启 Forsion。需要 Forsion 桌面端 2.13.4 或更新，只支持桌面（macOS、Windows、Linux，x64 / arm64）。
 

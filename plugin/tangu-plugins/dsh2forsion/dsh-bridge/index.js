@@ -3,9 +3,10 @@
 // 所以每个请求都核对启动时注入的密钥。只在 sidecar 里跑，不依赖任何第三方包。
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { isAbsolute } from 'node:path'
+import { managedSkills } from './skills.js'
 
 export const name = 'dsh2forsion-bridge'
-export const inject = ['tools', 'webServer', 'systemPrompt', 'sessionProjections']
+export const inject = ['tools', 'webServer', 'systemPrompt', 'sessionProjections', 'skills']
 
 const PREFIX = '/forsion-bridge'
 const MAX_BODY = 1 << 20
@@ -68,6 +69,11 @@ async function handle(ctx, state, req, res) {
   if (req.method === 'GET' && path === `${PREFIX}/health`) return send(res, 200, { ok: true })
   if (req.method === 'GET' && path === `${PREFIX}/tools`) return send(res, 200, { tools: ctx.tools.schemas() })
   if (req.method === 'GET' && path === `${PREFIX}/prompt`) return send(res, 200, { sections: promptSections(ctx) })
+  if (req.method === 'GET' && path === `${PREFIX}/skills`) {
+    const controller = new AbortController()
+    res.once('close', () => { if (!res.writableEnded) controller.abort() })
+    return send(res, 200, { skills: await managedSkills(ctx, process.env.DSH_HOME, controller.signal) })
+  }
   if (req.method === 'POST' && path === `${PREFIX}/tools/execute`) {
     const body = JSON.parse(await readBody(req))
     const callId = `dsh2forsion-${randomUUID()}`

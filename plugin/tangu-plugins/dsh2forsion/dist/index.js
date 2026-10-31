@@ -1088,12 +1088,20 @@ function createPlugin() {
         await stop(1500);
       };
       state = { shutdown };
+      if (ctx.registerSkillProvider) ctx.registerSkillProvider({
+        id: "dsh",
+        list: async ({ signal } = {}) => {
+          if (disposed || !store.isPluginEnabledSync(PLUGIN_ID) || sidecar.state !== "running") return [];
+          const { skills } = await sidecar.bridge("/skills", { signal });
+          return disposed ? [] : skills;
+        }
+      });
       ctx.registerPlugin({
         id: PLUGIN_ID,
         name: "DSH2Forsion",
         nameEn: "DSH2Forsion",
-        description: "\u5728 Forsion \u91CC\u8FD0\u884C DeepSeek Harness \u63D2\u4EF6\uFF1A\u7BA1\u7406 DSH \u8FD0\u884C\u65F6\uFF0C\u5E76\u628A DSH \u63D2\u4EF6\u7684\u5DE5\u5177\u4EA4\u7ED9 Tangu\u3002",
-        descriptionEn: "Run DeepSeek Harness plugins in Forsion: manages the DSH runtime and offers DSH plugin tools to Tangu.",
+        description: "\u8BA9 Tangu \u4F7F\u7528 DeepSeek Harness \u63D2\u4EF6\u7684\u5DE5\u5177\u548C\u6280\u80FD\uFF0C\u5E76\u7BA1\u7406\u5176\u517C\u5BB9\u8FD0\u884C\u65F6\u3002\u539F\u751F\u6280\u80FD\u9700\u8981\u65B0\u7248\u5BBF\u4E3B\u652F\u6301\u3002",
+        descriptionEn: "Use DeepSeek Harness plugin tools and skills in Tangu, with a managed compatibility runtime. Native skills require host support.",
         scopes: ["global"],
         defaultEnabled: true,
         settings: {
@@ -1133,7 +1141,8 @@ function createPlugin() {
         tools: tools.schemas.map((t) => t.name),
         promptSections: tools.sections.map((s) => s.name),
         pluginJob: plugins.busy,
-        settings: settings()
+        settings: settings(),
+        nativeSkills: { supported: typeof ctx.registerSkillProvider === "function" }
       });
       ctx.registerScopedRoutes((router) => {
         router.get("/status", (_req, res) => send(res, status));

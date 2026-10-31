@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- DSH 管理目录技能通过新宿主 `registerSkillProvider` 接入 Tangu 原生列表与 `use_skill`；带独立命名空间与只读来源信息，停用、删除和源调用策略立即生效。需要 Genesis 配套接口，尚未发布。
+- Managed DSH skills now use the host's native skill catalog and `use_skill`, with namespaced identities, read-only source ownership, and live disable/delete policy. Requires the companion Genesis host API, not yet released. Real-model scenarios are in `SCENARIOS.md`.
+
 - 修复带 DSH 二次审批的插件工具（例如 Skills Manager 创建技能）无法执行：桥接调用现在具有完整执行轮次和审批审计；同目录调用顺序执行，异常及取消正确结束轮次。
 - 已获 Tangu 批准的单次调用优先处理对应 DSH 审批，避免被 DSH 网页审批处理器无限等待；其他调用保持原审批流程。
 - Added reproducible real-model and Electron workflows for Free Search, Skills Manager, Task Board and Git Graph; see [SCENARIOS.md](SCENARIOS.md).

@@ -50,8 +50,18 @@ The commands also require the agent/runtime and desktop paths documented in READ
 ## 能力边界 / Scope
 
 - Free Search 是新增的 `dsh__` 工具，不会替换 Tangu 自带搜索。
-- Skills Manager 创建的是 DSH 技能，不会自动进入 Tangu 技能列表。
+- Skills Manager 创建的管理目录技能，在带 `registerSkillProvider` 的新宿主上进入 Tangu 原生技能列表；旧宿主不支持，项目技能不在本切片范围内。
 - Billion Context 依赖其代理见过所属 DSH 会话的模型流量，不能据“插件启动成功”宣称它压缩了 Tangu 对话。
 - ModLens 视觉场景需要另配视觉 provider 或明确启用本地 CLI 凭据复用；本轮不修改用户全局配置，未宣称通过。
 
-Free Search exposes additional bridged tools. DSH skills do not automatically become Tangu skills. Billion Context needs model traffic from its owning DSH session; merely loading it proves no Tangu compression. ModLens requires a visual provider or explicitly configured CLI credential reuse and is outside this run's verified scope.
+Free Search exposes additional bridged tools. Managed DSH skills enter the native Tangu catalog on hosts with `registerSkillProvider`; older hosts and project skill roots are outside this slice. Billion Context needs model traffic from its owning DSH session; merely loading it proves no Tangu compression. ModLens requires a visual provider or explicitly configured CLI credential reuse and is outside this run's verified scope.
+
+## 原生技能切片 / Native skill slice
+
+```sh
+DSH2FORSION_SCENARIOS=native-skills npm run test:live
+```
+
+使用包含新宿主接口的 `FORSION_AGENT` 构建。真实模型通过 Skills Manager 创建技能；全新 Tangu 会话只获准使用原生 `use_skill`，读取技能后返回仅存在技能正文中的随机标记。随后验证同名用户技能共存、源文件禁用/恢复、DSH 重启、插件停用/重新启用和源文件删除。输出包括原始事件、工具结果、技能正文和列表归属；这一测试不使用 DSH WebUI，也不证明原生面板已接入。
+
+Use a `FORSION_AGENT` build containing the new host API. A real model creates a skill through Skills Manager. A fresh Tangu conversation can call only native `use_skill` and must return a random marker found only in the skill body. The test then checks a same-name user skill, source policy changes, DSH restart, plugin disable/re-enable, and source deletion. Evidence includes events, tool results, skill content and ownership metadata. This test does not use DSH WebUI or establish native panel compatibility.
