@@ -28,7 +28,7 @@ function check(name, ok, detail) {
 async function until(fn, label, ms = 60_000) {
   const end = Date.now() + ms
   for (;;) {
-    const v = await fn().catch(() => null)
+    const v = await Promise.resolve().then(fn).catch(() => null)
     if (v) return v
     if (Date.now() > end) throw new Error(`Timed out: ${label}`)
     await new Promise(r => setTimeout(r, 250))
@@ -70,7 +70,20 @@ async function main() {
   delete env.TANGU_PLUGINS_DIR
   delete env.TANGU_BUNDLE_DIRS
   env.TANGU_PLUGINS = 'on'
-  const shot = async (page, name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(SHOTS, `${name}.png`) }); console.log(`      shot ${name}.png`) }
+  const shot = async (page, name) => {
+    await page.waitForTimeout(400)
+    const geometry = await page.evaluate(async () => {
+      const wv = document.querySelector('.d2f-space webview')
+      const rect = wv?.getBoundingClientRect()
+      return { host: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio }, webview: rect && { width: rect.width, height: rect.height }, guest: wv && await wv.executeJavaScript('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})').catch(() => null) }
+    })
+    fs.writeFileSync(path.join(SHOTS, `${name}-geometry.json`), JSON.stringify(geometry))
+    if (geometry.webview?.width > 0 && geometry.guest?.width > 0) {
+      assert.ok(Math.abs(geometry.webview.width - geometry.guest.width) <= 2 && Math.abs(geometry.webview.height - geometry.guest.height) <= 2, 'DSH guest fills its host at native Windows DPI')
+    }
+    await page.screenshot({ path: path.join(SHOTS, `${name}.png`) })
+    console.log(`      shot ${name}.png`)
+  }
 
   let app
   try {
@@ -86,7 +99,10 @@ async function main() {
     const engineCalls = []
     win.on('request', r => { if (r.url().includes('/extensions/')) engineCalls.push({ at: Date.now(), method: r.method(), path: new URL(r.url()).pathname, body: r.postData() }) })
     win.on('requestfinished', async r => { if (r.url().includes('/appearance')) { const res = await r.response(); console.log(`      appearance → ${res?.status()} ${(await res?.text().catch(() => ''))?.slice(0, 160)}`) } })
-    await win.setViewportSize({ width: 1360, height: 860 }).catch(() => {})
+    // Resize the native window. Chromium viewport emulation does not resize
+    // Electron's embedded guest consistently on Windows at 125% DPI.
+    const nativeWindow = await app.browserWindow(win)
+    await nativeWindow.evaluate(window => window.setContentSize(1360, 860))
     await win.waitForSelector('#root')
     await win.waitForTimeout(1000)
     for (const label of ['跳过引导', 'Skip onboarding', 'Skip']) {

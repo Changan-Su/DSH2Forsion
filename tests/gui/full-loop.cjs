@@ -38,9 +38,10 @@ module.exports = async ({ app, win, settings, home, seed, check, until, shot, sh
   const board = async () => {
     await present()
     await until(() => guest(`(() => {
+      if (document.querySelector('[data-dsh-taskboard-view]')) return true;
       const icon = document.querySelector('svg[data-dsh-panel-entry="task-board"]');
       const button = icon?.closest('button') || [...document.querySelectorAll('button')].find(b => /^(Task Board|任务看板)$/.test(b.textContent.trim()));
-      if (!button) return false; button.click(); return true;
+      if (!button) return false; button.click(); return false;
     })()`), 'Task Board navigation')
     await until(() => guest(`document.querySelector('[data-dsh-taskboard-view]')?.innerText.includes(${JSON.stringify(seed.marker)})`), 'model-created task rendered')
     const content = await guest(`(() => {
@@ -68,7 +69,7 @@ module.exports = async ({ app, win, settings, home, seed, check, until, shot, sh
     if (!button) return false; button.scrollIntoView({ block: 'center' }); button.click(); return true;
   })()`), 'open Trae skin configuration card')
   await until(() => guest(`!!document.querySelector('[data-plugin-config="dsh-trae-skin"]')`), 'Trae skin config')
-  const wordmark = 'D2F GUI acceptance'
+  const wordmark = `D2F GUI ${Date.now()}`
   await guest(`(() => {
     const root = document.querySelector('[data-plugin-config="dsh-trae-skin"] .dshTraeGrid');
     const select = root.querySelector('select');
@@ -107,11 +108,20 @@ module.exports = async ({ app, win, settings, home, seed, check, until, shot, sh
     const tool = 'dsh__acceptance_probe', marker = `D2F-GUI-${Date.now()}`
     const config = { execMode: 'host', cwd: seed.workspace, approvalMode: 'full-auto', toolsStrict: true, toolsMode: 'allow', toolsList: [tool], enabledMcpServers: [], thinkingLevel: 'low' }
     const session = (await api('/agent/sessions', { title: 'D2F GUI model approval', model_id: seed.model, project_path: seed.workspace, agent_config: config })).session
+    console.log(`      GUI model session created: ${session.id}`)
+    // The session was prepared through the public API, so refresh the shell's
+    // session list before navigating. An unknown id otherwise renders a draft.
+    const sessionList = page.waitForResponse(r => /\/agent\/sessions(?:\?|$)/.test(r.url()) && r.request().method() === 'GET', { timeout: 60_000 })
+    await page.reload()
+    await sessionList
+    await page.waitForSelector('.rb')
     const windowHandle = await app.browserWindow(page)
     await windowHandle.evaluate((window, id) => window.webContents.send('app:deep-link', `forsion://session/${id}`), session.id)
     const composer = page.locator('.t2c-ta:visible').last()
     await composer.waitFor({ timeout: 30_000 })
     await until(() => composer.isEnabled(), 'real chat input enabled')
+    await until(async () => (await page.locator('button').allTextContents()).some(t => /gpt.?6.*luna/i.test(t)), 'selected GPT 6 Luna model in composer')
+    console.log('      GUI model composer enabled')
     const requests = []
     let refusedModel = false
     const guardModel = async route => {
@@ -123,10 +133,18 @@ module.exports = async ({ app, win, settings, home, seed, check, until, shot, sh
       return route.continue()
     }
     await page.route('**/agent/runs', guardModel)
-    const observe = r => { if (r.method() === 'POST' && /\/agent\/runs$/.test(new URL(r.url()).pathname)) requests.push(r.postDataJSON()) }
+    const observe = r => {
+      if (r.method() === 'POST' && /\/agent\/runs$/.test(new URL(r.url()).pathname)) {
+        const body = r.postDataJSON()
+        requests.push(body)
+        fs.writeFileSync(path.join(shots, 'gui-request-evidence.json'), JSON.stringify({ sessionId: body.session_id, model: body.model_id, expectedSession: session.id, expectedModel: seed.model }))
+        console.log(`      GUI sent model request: ${body.model_id}`)
+      }
+    }
     page.on('request', observe)
     await composer.fill(`Call ${tool} exactly once with marker "${marker}" and waitMs 0. Report the returned marker. Do not use other tools.`)
     await composer.press('Enter')
+    await shot(page, '10a-model-message-sent')
     const approval = page.locator('.approval-card:not(.resolved)').filter({ hasText: tool }).last()
     await approval.waitFor({ timeout: 180_000 })
     assert.equal(refusedModel, false, 'only the designated real model may be called')
@@ -151,12 +169,18 @@ module.exports = async ({ app, win, settings, home, seed, check, until, shot, sh
       })
       try { const value = JSON.parse(result); return value.marker === marker && value.completed === true && value.cwd.toLowerCase() === seed.workspace.toLowerCase() } catch { return false }
     }, 'actual tool result in conversation')
+    const completedRuns = await until(async () => {
+      const { runs } = await api(`/agent/runs?session_id=${session.id}`)
+      return runs.length === 1 && runs[0].status === 'done' && runs
+    }, 'real model run completes successfully', 90_000)
+    const phases = fs.readFileSync(ledger, 'utf8').trim().split('\n').map(JSON.parse).filter(r => r.marker === marker).map(r => r.phase)
+    assert.deepEqual(phases, ['started', 'finished'], 'UI approval executes exactly once')
     page.off('request', observe)
     await page.unroute('**/agent/runs', guardModel)
     assert.ok(requests.some(r => r.session_id === session.id && r.model_id === seed.model), 'UI sent the selected real model and session')
     check('真实聊天发送、审批卡点击、DSH 执行和结果回显贯通', true)
     await shot(page, '11-model-tool-result')
-    fs.writeFileSync(path.join(shots, 'gui-model-evidence.json'), JSON.stringify({ sessionId: session.id, marker, model: seed.model, approvedFromUI: true }))
+    fs.writeFileSync(path.join(shots, 'gui-model-evidence.json'), JSON.stringify({ sessionId: session.id, marker, model: seed.model, approvedFromUI: true, runs: completedRuns, phases }))
   }
 
   // Reopen the real app using the same isolated home, then verify the saved data.

@@ -140,6 +140,17 @@ try {
     assert.deepEqual(records(marker).map(r => r.phase), ['started', 'finished'])
     assert.ok(records(marker).every(r => r.cwd.toLowerCase() === workspace.toLowerCase()))
   })
+  await test('dshresume', 'A real model call keeps its working directory after DSH restarts', async row => {
+    await api(prefix + '/sidecar/restart', {})
+    await until(async () => (await api(prefix + '/status')).sidecar.state === 'running', 'restarted DSH')
+    const marker = `D2F-resume-${suffix}`
+    const trace = await run('resume', `Call ${probe} exactly once with marker "${marker}" and waitMs 0. Report its returned marker and working directory. Do not use any other tool.`, [probe])
+    row.output = trace.content
+    assert.equal(trace.approvals.length, 1)
+    assert.ok(trace.results.some(r => !r.isError && String(r.result).includes(marker)))
+    assert.deepEqual(records(marker).map(r => r.phase), ['started', 'finished'])
+    assert.ok(records(marker).every(r => r.cwd.toLowerCase() === workspace.toLowerCase()))
+  })
   await test('dshreject', 'Rejecting a real model approval never executes the tool', async row => {
     const marker = `D2F-reject-${suffix}`
     const trace = await run('reject', `Call ${probe} once with marker "${marker}" and waitMs 0. If permission is denied, stop immediately, do not retry, and explain that it was denied.`, [probe], 'reject')

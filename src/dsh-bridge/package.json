@@ -1,6 +1,6 @@
 {
   "name": "dsh2forsion-bridge",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "DSH2Forsion bridge: exposes DSH tools, prompt sections and appearance settings to the Forsion engine half",
   "type": "module",

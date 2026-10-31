@@ -151,7 +151,7 @@ class AgentPool {
       catch (error) {
         // 上次留下的同名会话：接着用
         if (typeof registry.resume !== 'function') throw error
-        handle = await registry.resume({ sessionId })
+        handle = await registry.resume({ resumeSessionId: sessionId })
       }
       // 这些会话是桥自己的执行上下文，别出现在 DSH Space 的会话列表里
       try { await this.ctx.get('workspaceRegistry')?.archiveSession?.(sessionId) } catch { /* 归档失败只影响列表观感 */ }

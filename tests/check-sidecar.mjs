@@ -147,6 +147,14 @@ try {
     assert.doesNotMatch(bad, /^Error: Error:/)
   })
 
+  await it('after a sidecar restart the same working directory resumes its persisted agent', async () => {
+    const proj = join(scratch, 'project-a')
+    await call('POST', '/sidecar/restart')
+    await waitFor('restarted sidecar', async () => (await call('GET', '/status')).sidecar.state === 'running', 60_000)
+    const out = await tool('dsh__fixture_echo').execute({ text: 'after restart' }, { sessionId: 's1', cwd: proj, signal: new AbortController().signal })
+    assert.equal(out, `echo: after restart (cwd ${proj})`)
+  })
+
   await it('a plugin that bundles its own copy of a DSH core package is stopped before it touches the profile', async () => {
     const r = await call('POST', '/plugins/install', { spec: `file:${badShadow}` })
     assert.equal(r.status, 'blocked', JSON.stringify(r))

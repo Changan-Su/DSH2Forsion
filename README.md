@@ -21,6 +21,10 @@ Run DeepSeek Harness (DSH) plugins inside [Forsion](https://github.com/Changan-S
 
 v0.1 does: download the runtime after you confirm, start and stop DSH, embed the DSH interface in a Space, install and remove DSH plugins with a trial start first, roll back, and offer DSH plugin tools and prompt sections to Tangu. It does not yet render DSH plugin UI inside native Forsion views (M3). Real-model acceptance uses GPT 6 Luna through the real Tangu loader, including approval, denial, cancellation, and a third-party task board.
 
+2026-10-31 验收：Windows 真实 Electron 完整 GUI 18/18、GPT 6 Luna 6/6、复用运行时的真实 sidecar 13/13 通过。内部桥升级到 `0.1.2`，修复 DSH 重启后恢复持久化会话时丢失工作目录的问题；已有 profile 会更新桥，无需重装运行时。
+
+Acceptance on 2026-10-31: 18/18 full GUI checks in real Windows Electron, 6/6 GPT 6 Luna checks, and 13/13 real sidecar checks with a reused runtime passed. Internal bridge `0.1.2` fixes persisted session restoration after DSH restarts, preserving the selected working directory. Existing profiles update the bridge without reinstalling the runtime.
+
 ## 安装 / Install
 
 把本仓 `plugin/` 文件夹的内容放进 Forsion 的插件目录 `plugins/dsh2forsion/`（安装版是 `~/.forsion/plugins/`），重启 Forsion。需要 Forsion 桌面端 2.13.4 或更新，只支持桌面（macOS、Windows、Linux，x64 / arm64）。
