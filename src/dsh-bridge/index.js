@@ -4,9 +4,13 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { managedSkills } from './skills.js'
+import { installNativeAdapters } from './native-adapters.js'
+import { mcpSnapshot } from './mcp.js'
+import { SessionScopePool } from './session-scope.js'
+import { listModels, resolveModel, readModelBody, streamModelResponse } from './models.js'
 
 export const name = 'dsh2forsion-bridge'
-export const inject = ['tools', 'webServer', 'systemPrompt', 'sessionProjections', 'skills']
+export const inject = ['tools', 'webServer', 'systemPrompt', 'sessionProjections', 'skills', 'llm']
 
 const PREFIX = '/forsion-bridge'
 const MAX_BODY = 1 << 20
@@ -32,14 +36,25 @@ export function apply(ctx) {
   }, { prepend: true })
   watchParent(ctx, log)
   const agents = new AgentPool(ctx, log)
+  const scopes = new SessionScopePool(ctx)
+  const native = { endpoint: null }
+  native.adapters = installNativeAdapters(ctx, { log: line => log.info(line), invoke: async (op, payload) => {
+    if (!native.endpoint) throw new Error('Open the native view from a Tangu project session first')
+    const response = await fetch(native.endpoint.url, { method: 'POST', signal: AbortSignal.timeout(30_000),
+      headers: { 'content-type': 'application/json', 'x-dsh2forsion-native': native.endpoint.secret },
+      body: JSON.stringify({ adapter: 'task-board', version: 1, op, payload }) })
+    const result = await response.json()
+    if (!response.ok) throw new Error(result.error || 'Native execution failed')
+    return result
+  } })
   const dispose = ctx.webServer.register({
     kind: 'prefix',
     path: PREFIX,
-    handler: (req, res) => handle(ctx, { secret, approved, agents }, req, res).catch(error => {
+    handler: (req, res) => handle(ctx, { secret, approved, agents, scopes, native }, req, res).catch(error => {
       if (!res.headersSent && !res.destroyed) send(res, 500, { error: String(error?.message ?? error) })
     }),
   })
-  ctx.effect(() => () => { dispose(); void agents.dispose() })
+  ctx.effect(() => () => { native.endpoint = null; native.adapters.dispose(); dispose(); void agents.dispose(); void scopes.dispose().catch(error => log.warn(error)) })
 }
 
 // Forsion 崩溃或被强杀时引擎来不及停 sidecar，DSH 会变成孤儿常驻（约 400 MB，真桌面台架实测）。
@@ -67,12 +82,48 @@ async function handle(ctx, state, req, res) {
   if (!authorized(req.headers['x-dsh2forsion-secret'], state.secret)) return send(res, 401, { error: 'unauthorized' })
   const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
   if (req.method === 'GET' && path === `${PREFIX}/health`) return send(res, 200, { ok: true })
-  if (req.method === 'GET' && path === `${PREFIX}/tools`) return send(res, 200, { tools: ctx.tools.schemas() })
+  if (path.startsWith(`${PREFIX}/models`)) {
+    const controller = new AbortController()
+    res.once('close', () => { if (!res.writableEnded) controller.abort() })
+    const signal = controller.signal
+    if (req.method === 'GET' && path === `${PREFIX}/models`) return send(res, 200, await listModels(ctx, { signal }))
+    if (req.method === 'POST' && path === `${PREFIX}/models/resolve`) return send(res, 200, await resolveModel(ctx, (await readModelBody(req)).modelId, { signal }))
+    if (req.method === 'POST' && path === `${PREFIX}/models/stream`) {
+      const input = await readModelBody(req)
+      if (input.sessionKey && input.cwd) return state.scopes.withInitiator(input, signal,
+        (agent, combined) => streamModelResponse(ctx, input, res, { signal: combined, agent }))
+      // Projectless/background inference has no attribution agent. Context
+      // extensions must not treat this path as evidence of compression support.
+      return streamModelResponse(ctx, input, res, { signal })
+    }
+  }
+  if (req.method === 'GET' && [ `${PREFIX}/tools`, `${PREFIX}/mcp/catalog` ].includes(path)) {
+    const controller = new AbortController()
+    res.once('close', () => { if (!res.writableEnded) controller.abort() })
+    const cwd = requestCwd(req)
+    const keys = new URL(req.url, 'http://127.0.0.1').searchParams.getAll('sessionKey')
+    if (keys.length > 1 || (keys.length && !/^[a-f0-9]{64}$/.test(keys[0]))) throw new Error('Invalid session key')
+    const agent = keys.length ? await state.scopes.get({ sessionKey: keys[0], cwd }, controller.signal) : await state.agents.forCwd(cwd)
+    controller.signal.throwIfAborted()
+    if (path.endsWith('/mcp/catalog')) return send(res, 200, await mcpSnapshot(ctx, { agent, signal: controller.signal }))
+    return send(res, 200, { tools: ctx.tools.schemas(agent) })
+  }
   if (req.method === 'GET' && path === `${PREFIX}/prompt`) return send(res, 200, { sections: promptSections(ctx) })
   if (req.method === 'GET' && path === `${PREFIX}/skills`) {
     const controller = new AbortController()
     res.once('close', () => { if (!res.writableEnded) controller.abort() })
-    return send(res, 200, { skills: await managedSkills(ctx, process.env.DSH_HOME, controller.signal) })
+    return send(res, 200, { skills: await managedSkills(ctx, process.env.DSH_HOME, controller.signal, { cwd: requestCwd(req) }) })
+  }
+  if (req.method === 'POST' && path === `${PREFIX}/native/configure`) {
+    const body = JSON.parse(await readBody(req))
+    const url = new URL(body.url)
+    if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.pathname !== '/invoke' || url.username || url.password || url.search || url.hash || !/^[a-f0-9]{64}$/.test(body.secret)) throw new Error('Invalid native callback')
+    state.native.endpoint = { url: url.href, secret: body.secret }
+    return send(res, 200, { ok: true })
+  }
+  if (req.method === 'POST' && path === `${PREFIX}/native/view`) {
+    if (!state.native.endpoint) throw new Error('Native execution is unavailable on this host')
+    return send(res, 200, state.native.adapters.openView(JSON.parse(await readBody(req))))
   }
   if (req.method === 'POST' && path === `${PREFIX}/tools/execute`) {
     const body = JSON.parse(await readBody(req))
@@ -81,7 +132,10 @@ async function handle(ctx, state, req, res) {
     // 调用方断开才中止。别挂在 req 的 close 上：新版 Node 里请求体读完就会触发它
     res.once('close', () => { if (!res.writableEnded) controller.abort() })
     try {
-      const executed = await state.agents.execute(body.cwd, controller.signal, async (agent, signal) => {
+      const execute = body.sessionKey
+        ? fn => state.scopes.execute(body, controller.signal, fn)
+        : fn => state.agents.execute(body.cwd, controller.signal, fn)
+      const executed = await execute(async (agent, signal) => {
         if (body.approved === true) state.approved.set(callId, Date.now() + APPROVAL_TTL_MS)
         try {
           const result = await ctx.tools.execute({
@@ -101,6 +155,12 @@ async function handle(ctx, state, req, res) {
     return send(res, 200, await applyAppearance(ctx, body))
   }
   return send(res, 404, { error: 'not found' })
+}
+
+function requestCwd(req) {
+  const values = new URL(req.url, 'http://127.0.0.1').searchParams.getAll('cwd')
+  if (values.length > 1 || (values.length && !values[0].trim())) throw new Error('Exactly one nonempty cwd is allowed when supplied')
+  return values[0]
 }
 
 // 全局层的提示词分节（含文本）。哪些是第三方加的由引擎半身按随版本发的基线名单判断。

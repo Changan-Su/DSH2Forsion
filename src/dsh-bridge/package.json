@@ -1,12 +1,12 @@
 {
   "name": "dsh2forsion-bridge",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "DSH2Forsion bridge: exposes DSH tools, prompt sections and appearance settings to the Forsion engine half",
   "type": "module",
   "main": "index.js",
-  "exports": { ".": "./index.js", "./package.json": "./package.json", "./cordis.patch.yml": "./cordis.patch.yml" },
-  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "exports": { ".": "./index.js", "./client": "./native-client.js", "./package.json": "./package.json", "./cordis.patch.yml": "./cordis.patch.yml" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" }, "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-client-ui-layout", "@deepseek-ai/dsh-client-connection"] } },
   "peerDependencies": { "@deepseek-ai/cordis": "~4.0.5" },
   "license": "MIT"
 }

@@ -4,6 +4,8 @@
 
 **Acceptance scope:** real Tangu tool calls prove agent-tool interoperability. Embedded DSH pages prove runtime behavior only, not native Forsion WebUI integration or Tangu skill discovery/execution. Final acceptance must use Forsion/Tangu navigation, workspace, conversation and approval context.
 
+Bridge 0.1.6 的新增原生面板、模型来源、MCP、会话归属与 Billion 分项复跑见 [Native acceptance / 原生验收](compat/NATIVE-ACCEPTANCE.md)。The independent native desktop/model/protocol commands and their limits are documented there; historical checks below keep their original scope.
+
 ## 选择与版本 / Selection and versions
 
 2026-10-31 查询 npm 官方周下载量（2026-10-23 至 2026-10-29）。下载量用于筛选社区常用插件，不等同于独立用户数或完整热门榜。

@@ -7,6 +7,7 @@ import { builtinModules } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { build } from 'esbuild'
 import { BRIDGE_PACKAGE, DSH_VERSION, PLUGIN_ID, PNPM_VERSION } from '../src/engine/constants.mjs'
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -58,9 +59,12 @@ await it('versions agree across package.json, manifest, engine and space; bridge
 })
 
 await it('the engine bundle imports only Node built-ins', async () => {
-  // JSDoc 里的 import('./x.mjs') 类型注解不算
-  const src = (await readFile(join(engine, 'dist/index.js'), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '')
-  const specs = [...src.matchAll(/(?:^|\n)\s*import\s[^'"]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(m => m[1] ?? m[2] ?? m[3])
+  // Parse actual dependencies. Embedded upstream patch text contains browser
+  // imports inside string literals; regex scanning mistakes those for host code.
+  const src = await readFile(join(engine, 'dist/index.js'), 'utf8')
+  const parsed = await build({ stdin: { contents: src, resolveDir: join(engine, 'dist'), sourcefile: 'index.js' },
+    bundle: true, packages: 'external', platform: 'node', format: 'esm', write: false, metafile: true, logLevel: 'silent' })
+  const specs = Object.values(parsed.metafile.outputs).flatMap(output => output.imports.map(item => item.path))
   assert.ok(specs.length > 0)
   const builtins = new Set(builtinModules)
   for (const s of specs) assert.ok(s.startsWith('node:') || builtins.has(s), `non-builtin import ${s}`)

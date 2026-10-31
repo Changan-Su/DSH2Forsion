@@ -7,7 +7,7 @@
       name: '@deepseek-ai/dsh-skill-filesystem'
       config:
         providerName: dsh2forsion-managed
-        includeDefaultRoots: false
+        includeDefaultRoots: true
         customSkillDirs:
           - !!js process.getBuiltinModule('node:path').join(process.env.DSH_HOME, 'skills')
     - id: dsh2forsion-bridge

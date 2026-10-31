@@ -12,22 +12,25 @@ The goal is native use of DSH agent capabilities in Tangu and WebUI contribution
 | 宿主服务、存储、后台任务 | `apply(ctx)`、`ctx.effect`、服务注入 | 原样在 sidecar 里跑 | ✅ |
 | 工具 | `ctx.tools.register(defineTool(…))` | Tangu 的 ToolProvider：名字 `dsh__<原名>`，参数 schema 原样，`approval: 'always'`、`automationSafe: false`；执行时经桥调 `ctx.tools.execute` | ✅ |
 | DSH 自带工具（预设里的 read / bash 等） | 预设作用域 | **不**导入：Tangu 有自己的同类工具，DSH 全局表里只有 `working_directory`，按基线剔除 | 设计如此 |
-| 工具的工作目录 | `workingDirectory` 服务按 agent 会话取 | 每个 Tangu 会话的 `cwd` 对应一个桥自己的 DSH agent（会话 id = `dsh2forsion-<cwd 哈希>`，已归档，不出现在 DSH 的会话列表） | ✅ |
-| Agent 会话与上下文扩展 | 会话记录、模型流量、session/preset 作用域 | 当前按 cwd 复用工具执行上下文，未映射每个 Tangu 会话的完整历史或模型流量；同目录不同会话并不拥有独立 DSH agent，不能据工具桥通过宣称此类扩展兼容 | ⏳ 目标缺口 |
+| 工具与推理归属 | `workingDirectory`、`agents.withInitiator` | 用户＋Tangu 会话派生 opaque key，绑定独立兼容 agent；同目录不同会话隔离，工具和完整推理流共享归属；旧无会话调用保留 cwd 回退 | bridge 0.1.6 |
+| 会话历史扩展 | DSH event log、request header、完整模型历史 | 不复制 Tangu 历史、不伪造 DSH 模型事件；依赖这些内容的插件需要专项适配 | 明确边界 |
 | 工作目录上下文故障 | agent 创建 / 恢复失败 | 指定了 `cwd` 就必须建立其上下文；失败时报错且不调用工具，下次调用可重试。等待上下文期间取消也不启动工具 | ✅ |
 | 工具审批 | `approval/request` 事件 | Tangu 先问；批了以后桥只为这一次调用（60 秒内、同一个 callId）回答 `allowed-once`，别的照常交给 DSH 自己的审批卡 | ✅ |
 | 工具取消 | `signal` | Tangu 中止 → HTTP 断开 → 桥中止那次 `execute` | ✅ |
 | 系统提示词分节 | `ctx.systemPrompt.section({ name, order, text })` | 拼成一段进 Tangu 的系统提示词（`promptSection`），DSH 自带分节按基线剔除，总长 4000 字封顶 | ✅ |
-| 整页诊断入口 | `dsh.client`、插槽 | DSH Space：整幅嵌入 DSH 自己的 Web 界面（`<webview>`，独立分区 `persist:dsh2forsion`） | 仅兼容底座验证 |
-| 界面：插件 UI 进 Forsion 原生视图 | 插槽只能由声明它的父级渲染 | 单面板模式（M3）：把一个插件的界面单独放进 Forsion 视图 | ⏳ M3 |
+| 整页诊断入口 | `dsh.client`、插槽 | 独立 diagnostics 入口 | 兼容底座诊断 |
+| 插件 WebUI | 官方客户端图与公开插槽 | 主入口选择 TaskBoard / Skills Manager / Git Graph 原版面板；独立根不渲染 DSH AppFrame | bridge 0.1.6；固定版本适配 |
+| 看板执行 | 版本和哈希保护的 runner 接口 | 映射到 Tangu runs；原看板 CRUD/轮询/存储保留，真实审批、取消和状态回填；打开会话等待原生导航 ACK | bridge 0.1.6；新版本机宿主 |
 | 主题 | `settings` 的 `ui-theme.preference` | 跟随 Forsion 的明暗（`html[data-mode]`），写进 DSH 设置 | ✅ |
 | 语言 | `settings` 的 `locale.preference` | 跟随 Forsion 的界面语言（zh / en） | ✅ |
-| 登录 | DSH Web 的一次性 token → SameSite=Strict cookie | 引擎半身拿 token 换 cookie 调 RPC；webview 打开带 token 的地址自己换 | ✅ |
+| 登录 | 视图票据及 HttpOnly Cookie | 服务端完成 DSH 认证交换，原生面板不接收 DSH 进程密钥或 Tangu 令牌，不需另行登录 | ✅ |
 | 管理目录技能 | DSH 官方文件来源 + `skills.list/get` | 通过宿主 `registerSkillProvider` 进入原生技能列表与 `use_skill`，ID 为 `local:plugin/dsh2forsion/dsh/<name>`；只读、归属明确，尊重禁用与删除 | 已实现；需要新宿主接口，未发布 |
-| 项目技能、MCP、模型提供方 | DSH 自己的配置 | 本切片未导入项目/其他 CLI 技能；MCP 与模型提供方仍需独立适配 | ⏳ 目标缺口 |
+| 项目技能 | 官方 filesystem provider | 当前项目最近 git 根的 `.dsh/skills`、`.agents/skills`，无 git 时用 cwd；来源与根哈希隔离同名技能，校验实际路径和禁用 | bridge 0.1.6 |
+| MCP | 官方 tools/schema 与提示分节 | 实时目录和调用，原生 always 审批；保留结构化资源及受支持的图片，音频/blob/私有附件返回明确边界 | bridge 0.1.6 |
+| 模型来源 | DSH `llm` 目录与流 | Tangu `registerModelProvider` 命名空间；单次推理保留文本、推理、工具参数及实际用量，原生循环处理工具和审批；撤销与远程调用受限 | bridge 0.1.6；新版宿主 |
 | 子进程、原生依赖 | `node-pty`、`koffi` 等 | 运行时只给 DSH 自己的三个原生包跑构建；插件一律 `--ignore-scripts` | ✅ |
 
-## 下一阶段的验收 / Next-stage acceptance
+## 当前适配的验收 / Adapter acceptance
 
 优先做一个端到端纵向切片：**Forsion 中的第三方看板 → Tangu 执行 → 原面板状态更新**。不是先增加更多整页嵌入样本。
 
@@ -38,9 +41,9 @@ The goal is native use of DSH agent capabilities in Tangu and WebUI contribution
 
 The next vertical slice is **third-party panel in Forsion → Tangu execution → state update in that same panel**. Reuse public client slots rather than hiding the DSH shell or rewriting the plugin. Map execution to Tangu's public run/workspace APIs with owned task sessions and Tangu approvals/cancellation. Verify skill discovery and use separately from tools. Acceptance includes real execution, rejection, cancellation, restart and unload, without a second DSH model session or login.
 
-当前调查发现：Task Board 0.4.7 公开了 `main[key="task-board"]` 客户端插槽，适合作为界面切片；但其服务内部构造 DSH 专用 runner，公开 extension 注册不提供执行器替换。因此单独挂载面板还不能验收为 Tangu 执行兼容。需要先建立可维护的执行适配契约，不能用隐藏按钮或伪造完成状态填补这个缺口。
+TaskBoard 0.4.7 原来在服务内部构造 DSH runner。当前以版本及原始工件哈希保护的部署补丁提供可选 native runner；未知改动拒绝安装，保留上游许可证、原件和 NOTICE，不修改共享 pnpm hardlink。契约见 [native-adapters-v1.md](compat/patches/native-adapters-v1.md)。这不代表任意 DSH 版本、goal/team 模式或依赖 DSH 会话的所有面板均已兼容。
 
-Task Board 0.4.7 exposes a `main[key="task-board"]` client slot, but internally constructs a DSH-specific runner; its public extension registration does not replace that runner. Mounting the panel alone is insufficient. A maintainable execution-adapter contract must precede any claim of Tangu execution compatibility.
+TaskBoard uses a version/hash-guarded optional native runner. Upstream CRUD, rendering and polling stay intact; unknown artifacts fail closed and licenses/notices are preserved. This does not claim arbitrary-version, DSH goal/team or session-dependent UI compatibility. Project skills, MCP and model providers are separate adapters. Session attribution does not mirror native history; see [context-adapters.md](compat/context-adapters.md).
 
 ## 当前进程与通信 / Current processes and communication
 

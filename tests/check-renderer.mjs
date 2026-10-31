@@ -20,7 +20,7 @@ const until = async (fn, ms = 3000) => {
   throw new Error('timed out waiting')
 }
 
-function setup({ locale = 'zh', routes = {}, withSurface = false } = {}) {
+function setup({ locale = 'zh', routes = {}, withSurface = false, tangu = {} } = {}) {
   const window = new Window({ url: 'http://localhost/' })
   globalThis.window = window
   globalThis.document = window.document
@@ -40,6 +40,7 @@ function setup({ locale = 'zh', routes = {}, withSurface = false } = {}) {
     openView: id => calls.push({ openView: id }),
     app: { openSettings: target => calls.push({ openSettings: target }) },
     tangu: {
+      ...tangu,
       request: async (engine, path, opts = {}) => {
         assert.equal(engine, 'dsh2forsion')
         calls.push({ path, method: opts.method ?? 'GET', body: opts.body })
@@ -63,7 +64,7 @@ const status = (over = {}) => ({
 
 await it('registers the space view, the settings page and two commands; the Space only needs the registered view', () => {
   const { reg } = setup()
-  assert.deepEqual(Object.keys(reg.views), ['space'])
+  assert.deepEqual(Object.keys(reg.views), ['space', 'diagnostics'])
   assert.deepEqual(Object.keys(reg.settings), ['manage'])
   assert.deepEqual(Object.keys(reg.commands).sort(), ['dsh2forsion-manage', 'dsh2forsion-open-space'])
   for (const v of space.requires.views) assert.ok(v.startsWith(`plugin:${manifest.id}:`) && reg.views[v.split(':')[2]], v)
@@ -96,7 +97,7 @@ await it('first open: onboarding explains download size, source and trust; insta
   })
   const el = document.createElement('div')
   document.body.append(el)
-  const dispose = reg.views.space.mount(el)
+  const dispose = reg.views.diagnostics.mount(el)
   const button = await until(() => [...el.querySelectorAll('button')].find(b => b.textContent === '下载并启动'))
   const text = el.textContent
   assert.match(text, /v24\.22\.0/)
@@ -117,7 +118,7 @@ await it('English onboarding and a host-provided web surface instead of a raw we
   const { reg } = setup({ locale: 'en', withSurface: true, routes: { '/status': status(), 'POST /space': { url: 'http://127.0.0.1:1/?token=t' }, 'POST /appearance': { ok: true } } })
   const el = document.createElement('div')
   document.body.append(el)
-  reg.views.space.mount(el)
+  reg.views.diagnostics.mount(el)
   const s = await until(() => el.querySelector('.surface'))
   assert.equal(s.dataset.partition, 'persist:dsh2forsion')
   assert.equal(el.querySelector('webview'), null)
@@ -135,7 +136,7 @@ await it('after DSH restarts on a new port the Space re-embeds the new address; 
   })
   const el = document.createElement('div')
   document.body.append(el)
-  reg.views.space.mount(el)
+  reg.views.diagnostics.mount(el)
   await until(() => el.querySelector('webview')?.getAttribute('src') === 'http://127.0.0.1:4100/?token=t1')
   sidecar = { state: 'starting', base: null }
   await until(() => el.textContent.includes('DSH 正在重启'), 5000)
@@ -159,7 +160,7 @@ await it('start failure shows the error with retry, restore-last-good and logs',
   })
   const el = document.createElement('div')
   document.body.append(el)
-  reg.views.space.mount(el)
+  reg.views.diagnostics.mount(el)
   await until(() => el.textContent.includes('startup failed'))
   const labels = [...el.querySelectorAll('button')].map(b => b.textContent)
   assert.deepEqual(labels, ['重试', '恢复到上次能启动的状态', '查看日志与管理'])
@@ -196,6 +197,69 @@ await it('manage panel: lists tools and plugins; a partial trial asks before ins
   confirm.click()
   await until(() => el.textContent.includes('已安装 dsh-y，但有部分没激活'))
   assert.deepEqual(installs, [{ spec: 'dsh-y@1.0.0' }, { spec: 'dsh-y@1.0.0', confirm: true }])
+})
+
+await it('native view sends current session context and acknowledges actual navigation before reporting success', async () => {
+  let event = true, finishNavigation
+  const { ctx, reg, calls } = setup({ withSurface: true, routes: {
+    '/status': status({ sidecar: { state: 'running', base: 'http://127.0.0.1:4500' } }),
+    'POST /native/view': { url: 'http://127.0.0.1:4500/forsion-native/view/test/' },
+    '/native/events': () => ({ events: event ? [{ eventId: 'navigate', type: 'openSession', sessionId: 'native-task' }] : [] }),
+    'POST /native/ack': () => { event = false; return { ok: true } },
+    'POST /appearance': { ok: true },
+  } })
+  ctx.tangu.agentStatus = () => ({ sessionId: 'parent' })
+  ctx.tangu.models = () => [{ id: 'native/model', name: 'Native model' }]
+  ctx.tangu.openSession = async sessionId => { assert.equal(sessionId, 'native-task'); await new Promise(resolve => { finishNavigation = resolve }) }
+  const el = document.createElement('div'); document.body.append(el)
+  const dispose = reg.views.space.mount(el)
+  const surface = await until(() => el.querySelector('.surface'))
+  assert.match(surface.dataset.url, /forsion-native/)
+  assert.deepEqual(calls.find(c => c.path === '/native/view').body, { panelKey: 'task-board', sessionId: 'parent', models: [{ id: 'native/model', name: 'Native model' }] })
+  await until(() => finishNavigation)
+  assert.equal(calls.some(c => c.path === '/native/ack'), false)
+  finishNavigation()
+  await until(() => calls.some(c => c.path === '/native/ack'))
+  assert.equal(calls.some(c => c.path === '/space'), false)
+  dispose(); assert.equal(el.children.length, 0)
+})
+
+await it('native view disposal rejects late surface mounting', async () => {
+  let finish
+  const { reg, ctx } = setup({ withSurface: true, routes: {
+    '/status': status(), 'POST /native/view': () => new Promise(resolve => { finish = resolve }),
+  } })
+  ctx.tangu.agentStatus = () => ({ sessionId: 'parent' })
+  const el = document.createElement('div'); document.body.append(el)
+  const dispose = reg.views.space.mount(el)
+  await until(() => finish); dispose()
+  finish({ url: 'http://127.0.0.1:4500/forsion-native/view/test/' })
+  await tick(10)
+  assert.equal(el.children.length, 0)
+})
+
+await it('native view keeps the last explicit selection across Space changes', async () => {
+  let onStatus
+  const { reg, calls } = setup({ routes: {
+    '/status': status(), 'POST /native/view': { url: 'http://127.0.0.1:4500/forsion-native/view/test/' },
+    'POST /appearance': { ok: true },
+  }, tangu: { agentStatus: () => ({ sessionId: null }), subscribeAgentStatus: cb => { onStatus = cb; return () => {} } } })
+  onStatus({ sessionId: 'project-a' }); onStatus({ sessionId: 'project-b' }); onStatus({ sessionId: null })
+  const el = document.createElement('div'); document.body.append(el)
+  const dispose = reg.views.space.mount(el)
+  await until(() => el.querySelector('webview'))
+  assert.equal(calls.find(c => c.path === '/native/view').body.sessionId, 'project-b')
+  dispose()
+})
+
+await it('native view without an active session never resumes an old project', async () => {
+  const { reg, calls } = setup({ routes: { '/status': status() } })
+  const el = document.createElement('div'); document.body.append(el)
+  const dispose = reg.views.space.mount(el)
+  await until(() => el.textContent.includes('请先在 Tangu 侧栏选择项目会话'))
+  assert.equal(calls.some(c => c.path === '/native/view'), false)
+  assert.equal(el.querySelector('webview'), null)
+  dispose()
 })
 
 console.log(`check-renderer: ${n} passed`)

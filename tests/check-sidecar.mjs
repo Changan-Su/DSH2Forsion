@@ -110,13 +110,19 @@ try {
     })
   }
 
-  await it('starts the sidecar on its own and offers no tools while only built-ins are installed', async () => {
+  await it('starts with no imported tools and only the approval-protected MCP discovery gateway', async () => {
     const s = await waitFor('sidecar running', async () => { const v = await call('GET', '/status'); return v.sidecar.state === 'running' && v }, 120_000)
     console.log(`  sidecar ready in ${s.sidecar.readyMs} ms`)
     assert.deepEqual(s.tools, [])
     assert.deepEqual(s.promptSections, [])
-    assert.deepEqual(meta.toolProvider.tools(), [])
-    assert.equal(meta.promptSection(), '')
+    const gateway = meta.toolProvider.tools()
+    assert.deepEqual(gateway.map(tool => tool.name), ['dsh_mcp_catalog', 'dsh_mcp_call'])
+    for (const tool of gateway) {
+      assert.equal(tool.capabilities.approval, 'always')
+      assert.equal(tool.capabilities.automationSafe, false)
+    }
+    assert.match(meta.promptSection(), /dsh_mcp_catalog/)
+    assert.doesNotMatch(meta.promptSection(), /fixture ping/)
     const space = await call('POST', '/space')
     assert.match(space.url, /^http:\/\/127\.0\.0\.1:\d+\/\?token=\S+$/)
   })

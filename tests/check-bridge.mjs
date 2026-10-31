@@ -38,6 +38,7 @@ async function test(name, run) {
   const server = createServer((req, res) => { state.nextRequest?.resolve(); res.once('close', closed.resolve); return handler(req, res) })
   try {
     apply({
+      provide() {},
       logger: () => ({ warn() {} }),
       on: (event, callback, options) => {
         const listeners = events.get(event) ?? []

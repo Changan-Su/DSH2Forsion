@@ -11,8 +11,10 @@ The compatibility runtime may remain an implementation detail. Users should keep
 | 宿主半身（服务、存储、后台任务） | 留在 sidecar 里，照 DSH 原样运行 |
 | 工具 | 进 Tangu 的工具表，名字前缀 `dsh__`，**每次调用都先问你**（完全放行档也问） |
 | 系统提示词分节 | 进 Tangu 的系统提示词（限 4000 字） |
-| DSH 管理目录中的技能 | 支持 `registerSkillProvider` 的 Tangu 宿主会列出并通过原生 `use_skill` 加载；保留插件归属，停用或删除即撤下 |
-| 界面（页面、面板、设置、插件市场） | 当前只提供整页 DSH 诊断入口；插件 WebUI 直接融入 Forsion 尚未完成 |
+| 管理目录与项目技能 | Tangu 原生列表与 `use_skill`；保留来源归属、项目隔离及实时禁用/删除 |
+| MCP | 原生审批后的实时目录与调用；保留结构化内容、资源和受支持的图片 |
+| 模型来源 | 进入 Tangu 模型目录；单次推理由 DSH 来源执行，工具循环与审批仍由 Tangu 管理 |
+| 界面 | 原版 TaskBoard、Skills Manager、Git Graph 独立面板；TaskBoard 执行映射到 Tangu 会话。整页诊断另设入口 |
 
 逐项对照见 [MAPPING.md](MAPPING.md)，兼容数据见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
@@ -22,7 +24,7 @@ The compatibility runtime may remain an implementation detail. Users should keep
 
 设计方案与 M0 可行性报告在维护者的内部文档仓里；公开的要点见 [MAPPING.md](MAPPING.md)（架构与映射）和 [COMPATIBILITY.md](COMPATIBILITY.md)（M0 兼容矩阵），原始数据在 [`spike/m0/`](spike/m0/)。
 
-v0.1 does: download the runtime after you confirm, start and stop DSH, embed the DSH interface in a Space, install and remove DSH plugins with a trial start first, roll back, and offer DSH plugin tools and prompt sections to Tangu. It does not yet render DSH plugin UI inside native Forsion views (M3). Real-model acceptance uses GPT 6 Luna through the real Tangu loader, including approval, denial, cancellation, and a third-party task board.
+The current development build uses bridge **0.1.6**. Its primary view renders the original TaskBoard, Skills Manager or Git Graph contribution without the DSH application shell. TaskBoard dispatches to native Tangu runs; project skills, MCP and model sources have separate adapters. Advanced DSH-only session/history extensions are not automatically compatible. See [MAPPING.md](MAPPING.md) and [SCENARIOS.md](SCENARIOS.md) for exact contracts and tests. This is a development build, not a released desktop update.
 
 2026-10-31 验收：Windows 真实 Electron 完整 GUI 18/18、GPT 6 Luna 6/6、复用运行时的真实 sidecar 13/13 通过。内部桥升级到 `0.1.2`，修复 DSH 重启后恢复持久化会话时丢失工作目录的问题；已有 profile 会更新桥，无需重装运行时。
 
@@ -34,9 +36,9 @@ Internal bridge `0.1.3` also blocks execution if it cannot establish the request
 
 ## 安装 / Install
 
-原生技能适配使用内部桥 `0.1.5`，还需要包含 `registerSkillProvider` 接口的 Tangu 宿主构建（Genesis 分支 `codex/plugin-skill-providers`，尚未发布）。旧宿主继续提供工具，但不会宣称支持原生技能。仅导入本插件隔离目录 `DSH_HOME/skills/<name>/SKILL.md` 中允许模型调用的技能，不复制到用户技能目录。
+完整适配需要包含 Genesis [#392](https://github.com/Changan-Su/Forsion/pull/392) 与 [#395](https://github.com/Changan-Su/Forsion/pull/395) 的宿主开发构建（均已合并，尚未发布桌面版本）。原生面板需要桌面 managed 本机引擎。旧宿主保留已有工具能力，并明确报告缺失的接口。技能来源包括隔离 `DSH_HOME/skills`、当前项目 `.dsh/skills` 与 `.agents/skills`，不复制到用户技能目录。
 
-Native skills use bridge `0.1.5` and require a Tangu host build with `registerSkillProvider` (Genesis branch `codex/plugin-skill-providers`, not yet released). Older hosts keep tool support and report native skills as unsupported. Only model-invocable skills in this plugin's isolated `DSH_HOME/skills/<name>/SKILL.md` are exposed; user skill directories are never modified.
+Full support requires a host development build containing merged Genesis PRs #392 and #395, and a managed local desktop engine. These APIs have not yet shipped in a desktop release. Older hosts retain existing tools and report unavailable APIs. Skills are read from the isolated managed directory and the current project's `.dsh/skills` / `.agents/skills`, with real-path and source-policy checks.
 
 把本仓 `plugin/` 文件夹的内容放进 Forsion 的插件目录 `plugins/dsh2forsion/`（安装版是 `~/.forsion/plugins/`），重启 Forsion。需要 Forsion 桌面端 2.13.4 或更新，只支持桌面（macOS、Windows、Linux，x64 / arm64）。
 
@@ -45,8 +47,8 @@ Copy the contents of `plugin/` into Forsion's `plugins/dsh2forsion/` folder and 
 装好后：
 
 1. 左侧 Ribbon 出现 **DSH**（Space 多时在 Ribbon 的「更多」里）。第一次打开会说明要下载什么（官方 Node 与 DSH 运行时共约 300 MB，装好后占约 1.1 GB 磁盘）、从哪下载（nodejs.org / npmjs，失败退国内镜像 npmmirror），点了才开始。下载加安装：Linux / macOS 的测试机约 1.5 分钟，Windows 的 CI 机器 12–16 分钟（npm 在 Windows 上装 600 多个包慢）。
-2. 在 **设置 → DSH2Forsion** 里输入 npm 包名装插件，或在 DSH Space 的插件页里浏览。
-3. 插件的工具出现在 Tangu 里，名字以 `dsh__` 开头。
+2. 在 **设置 → DSH2Forsion** 里输入 npm 包名装插件。先打开一个 Tangu 项目会话，再进入面板，选择任务看板、技能管理或 Git Graph。
+3. 插件的工具出现在 Tangu 里，名字以 `dsh__` 开头；看板任务在 Tangu 审批、执行与查看历史。
 
 ## 安全模型 / Safety
 
