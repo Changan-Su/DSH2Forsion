@@ -19,7 +19,7 @@ Run DeepSeek Harness (DSH) plugins inside [Forsion](https://github.com/Changan-S
 
 设计方案与 M0 可行性报告在维护者的内部文档仓里；公开的要点见 [MAPPING.md](MAPPING.md)（架构与映射）和 [COMPATIBILITY.md](COMPATIBILITY.md)（M0 兼容矩阵），原始数据在 [`spike/m0/`](spike/m0/)。
 
-v0.1 does: download the runtime after you confirm, start and stop DSH, embed the DSH interface in a Space, install and remove DSH plugins with a trial start first, roll back, and offer DSH plugin tools and prompt sections to Tangu. It does not yet render DSH plugin UI inside native Forsion views (M3), and has not been run against a real model.
+v0.1 does: download the runtime after you confirm, start and stop DSH, embed the DSH interface in a Space, install and remove DSH plugins with a trial start first, roll back, and offer DSH plugin tools and prompt sections to Tangu. It does not yet render DSH plugin UI inside native Forsion views (M3). Real-model acceptance uses GPT 6 Luna through the real Tangu loader, including approval, denial, cancellation, and a third-party task board.
 
 ## 安装 / Install
 
@@ -55,7 +55,12 @@ DSH2FORSION_ROOT=<已装好运行时的根目录> npm run test:sidecar   # 真 D
 DSH2FORSION_FRESH=1 npm run test:sidecar                         # 连运行时下载一起，约 3 分钟
 tests/tangu/run.sh <Forsion>/tangu-agent <运行时根目录>          # tangu-agent 真加载器
 FORSION_DESKTOP=<Forsion>/desktop node tests/gui/dsh2forsion.e2e.cjs   # 真 Forsion 桌面（先在 desktop 里 npm run build；Linux 无显示套 xvfb-run -a）
+FORSION_AGENT=<Forsion>/tangu-agent DSH2FORSION_ROOT=<运行时根目录> npm run test:live
 ```
+
+`test:live` 使用已登录的 Codex 订阅（默认 `~/.forsion-dev/provider-auth.json`，可用 `DSH2FORSION_AUTH` 指定），会消耗模型额度。它在隔离数据目录安装固定版本的任务看板和皮肤，以及用于观测审批和取消的本地探针；不会运行或调度看板任务。输出目录包含结果、事件证据和 `gui-seed.json`，不包含登录文件。先构建 `tangu-agent`，再运行。
+
+完整桌面衔接验收：先按所在 Forsion 仓库的 GUI 独占锁规则取得测试时段，再设置 `FORSION_DESKTOP`、`DSH2FORSION_GUI_SEED=<上一步输出>/gui-seed.json`、`DSH2FORSION_FULL=1` 和 `DSH2FORSION_GUI_LIVE=1`，运行 `npm run test:gui`。它在真实 Electron 窗口验证模型创建的数据、皮肤设置、语言同步、聊天审批、重启持久化和卸载回滚。`DSH2FORSION_SHOTS` 指定截图目录；不设置 seed 或 runtime 时，基础 GUI 测试会从首次下载开始。
 
 CI（`.github/workflows/ci.yml`）每个 PR 与 main 推送跑构建、检查和 Linux 上的完整下载端到端；手动触发时 macOS、Windows 一起跑。
 
