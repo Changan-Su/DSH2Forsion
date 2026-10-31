@@ -13,6 +13,7 @@ The goal is native use of DSH agent capabilities in Tangu and WebUI contribution
 | 工具 | `ctx.tools.register(defineTool(…))` | Tangu 的 ToolProvider：名字 `dsh__<原名>`，参数 schema 原样，`approval: 'always'`、`automationSafe: false`；执行时经桥调 `ctx.tools.execute` | ✅ |
 | DSH 自带工具（预设里的 read / bash 等） | 预设作用域 | **不**导入：Tangu 有自己的同类工具，DSH 全局表里只有 `working_directory`，按基线剔除 | 设计如此 |
 | 工具的工作目录 | `workingDirectory` 服务按 agent 会话取 | 每个 Tangu 会话的 `cwd` 对应一个桥自己的 DSH agent（会话 id = `dsh2forsion-<cwd 哈希>`，已归档，不出现在 DSH 的会话列表） | ✅ |
+| Agent 会话与上下文扩展 | 会话记录、模型流量、session/preset 作用域 | 当前按 cwd 复用工具执行上下文，未映射每个 Tangu 会话的完整历史或模型流量；同目录不同会话并不拥有独立 DSH agent，不能据工具桥通过宣称此类扩展兼容 | ⏳ 目标缺口 |
 | 工作目录上下文故障 | agent 创建 / 恢复失败 | 指定了 `cwd` 就必须建立其上下文；失败时报错且不调用工具，下次调用可重试。等待上下文期间取消也不启动工具 | ✅ |
 | 工具审批 | `approval/request` 事件 | Tangu 先问；批了以后桥只为这一次调用（60 秒内、同一个 callId）回答 `allowed-once`，别的照常交给 DSH 自己的审批卡 | ✅ |
 | 工具取消 | `signal` | Tangu 中止 → HTTP 断开 → 桥中止那次 `execute` | ✅ |

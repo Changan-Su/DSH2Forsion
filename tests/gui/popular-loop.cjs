@@ -12,12 +12,12 @@ module.exports = async ({ app, win, settings, seed, check, until, shot, shots, r
     const el = [...document.querySelectorAll(${JSON.stringify(selector)})].find(e => e.textContent.trim() === ${JSON.stringify(text)});
     if (!el) return false; el.click(); return true;
   })()`)
+  const dismissAccount = () => guest(`(() => { const h = [...document.querySelectorAll('h2')].find(h => /^(开始使用|Get started)$/.test(h.textContent.trim())); const b = h?.closest('[role="dialog"]')?.querySelector('button[aria-label="关闭"],button[aria-label="Close"]'); if (!b) return false; b.click(); return true; })()`)
   const present = async () => {
     await until(() => guest('document.readyState === "complete" && document.body.innerText.length > 20'), 'DSH ready', 120_000)
     const preview = await guest(`(() => { const b = [...document.querySelectorAll('button')].find(b => /^(继续|Continue)$/.test(b.textContent.trim())); if (!b) return false; b.click(); return true; })()`)
-    const dismiss = () => guest(`(() => { const h = [...document.querySelectorAll('h2')].find(h => /^(开始使用|Get started)$/.test(h.textContent.trim())); const b = h?.closest('[role="dialog"]')?.querySelector('button[aria-label="关闭"],button[aria-label="Close"]'); if (!b) return false; b.click(); return true; })()`)
-    if (preview) await until(dismiss, 'dismiss optional DSH account setup', 15_000)
-    else await dismiss()
+    if (preview) await until(dismissAccount, 'dismiss optional DSH account setup', 15_000)
+    else await dismissAccount()
   }
   const board = async () => {
     await present()
@@ -39,19 +39,20 @@ module.exports = async ({ app, win, settings, seed, check, until, shot, shots, r
   await present()
   await until(() => guest(`(() => {
     const items = [...document.querySelectorAll('button,[role="menuitem"]')];
-    const settings = items.find(b => /^(设置|Settings)$/.test(b.getAttribute('aria-label') || b.title || b.textContent.trim()));
+    const settings = items.find(b => /^(设置|Settings)(?:$|\\s|Ctrl)/.test(b.textContent.trim()) || /^(设置|Settings)$/.test(b.getAttribute('aria-label') || ''));
     if (settings) { settings.click(); return true; }
-    items.find(b => /^(更多|More)$/.test(b.getAttribute('aria-label') || b.title || b.textContent.trim()))?.click();
+    items.find(b => /^(更多|More)$/.test(b.textContent.trim()) && b.getAttribute('aria-haspopup') === 'menu')?.click();
     return false;
   })()`), 'open DSH settings from More')
   await until(() => guest(`(() => { const b = document.querySelector('[role="dialog"] nav button[data-dssm-nav-icon]'); if (!b) return false; b.click(); return true; })()`), 'open skill manager settings')
   await until(() => guest(`!!document.querySelector('.dssm-section')`), 'skill manager rendered')
-  await guest(`(() => {
-    document.querySelector('#dssm-tab-user')?.click();
-    const input = document.querySelector('input.dssm-search');
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(seed.skillName)});
-    input.dispatchEvent(new Event('input', {bubbles:true}));
-  })()`)
+  await guest(`document.querySelector('#dssm-tab-user')?.click()`)
+  await until(() => guest(`(() => {
+    const toggle = document.querySelector('section[data-source-key="dsh"] button.dssm-source-toggle');
+    if (!toggle) return false;
+    if (toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
+    return true;
+  })()`), 'expand DSH skill source')
   await until(() => guest(`document.querySelector('.dssm-section')?.innerText.includes(${JSON.stringify(seed.skillName)})`), 'model-created skill listed')
   // Scope to DSH skills; other providers' skill sources are not part of this test.
   await guest(`(() => {
@@ -62,10 +63,12 @@ module.exports = async ({ app, win, settings, seed, check, until, shot, shots, r
   await until(() => guest(`document.querySelector('textarea.dssm-detail-body')?.value.includes(${JSON.stringify(seed.skillMarker)})`), 'skill Markdown visible')
   check('真实模型创建的技能在 DSH 技能页显示完整检查清单', true)
   await shot(page, 'popular-02-skill-checklist')
+  // This seed is the isolated repository created by popular-scenarios.mjs.
+  execFileSync('git', ['switch', 'main'], { cwd: seed.workspace, windowsHide: true, stdio: 'pipe' })
   // Register only the isolated fixture directory through DSH's public API.
   const registered = await guest(`(async () => {
     const method = 'workspace/create';
-    const res = await fetch('/api/' + method, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:'d2f-gui-workspace',method,payload:{args:{path:${JSON.stringify(seed.workspace)}}}})});
+    const res = await fetch('/api/' + method, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:'d2f-gui-workspace',method,payload:{args:{request:{path:${JSON.stringify(seed.workspace)}}}}})});
     return res.json();
   })()`)
   assert.equal(registered.result?.ok, true, JSON.stringify(registered))
@@ -76,6 +79,10 @@ module.exports = async ({ app, win, settings, seed, check, until, shot, shots, r
     if (!b) return false; b.click(); return true;
   })()`), 'new DSH session in fixture repository')
   await until(() => guest(`document.querySelector('[data-gitgraph-chip-anchor]')?.innerText.includes('main')`), 'git branch chip for fixture')
+  // Selecting a fresh DSH session can show this optional prompt asynchronously.
+  // Dismiss it before interacting, rather than clicking behind a modal overlay.
+  await until(dismissAccount, 'optional account prompt after session selection', 5000).catch(() => false)
+  assert.equal(await guest(`!![...document.querySelectorAll('h2')].find(h => /^(开始使用|Get started)$/.test(h.textContent.trim()))`), false)
   await guest(`document.querySelector('[data-gitgraph-chip-anchor] button')?.click()`)
   await until(async () => await click('Git Graph') || await click('Git 图谱') || await click('Git 图'), 'open git graph')
   await until(() => guest(`document.querySelector('[role="dialog"]')?.innerText.includes(${JSON.stringify(seed.gitMessage)})`), 'actual commit in graph')

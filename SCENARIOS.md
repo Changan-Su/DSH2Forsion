@@ -41,6 +41,8 @@ DSH2FORSION_SCENARIOS=popular npm run test:live
 DSH2FORSION_GUI_SEED=<live-output>/gui-seed.json DSH2FORSION_POPULAR=1 npm run test:gui
 ```
 
+已跑过基础安装/主题链路时，可用 `DSH2FORSION_POPULAR_ONLY=1` 定向复跑同一 seed 的插件场景；它不重复安装夹具。This targeted option reuses the seed and skips the separately tested management/theme path.
+
 两条命令还分别需要 README 中的 `FORSION_AGENT` / `DSH2FORSION_ROOT` 与 `FORSION_DESKTOP`。GUI 必须遵守宿主项目的独占测试锁。模型默认 `codex/gpt-6-luna`，会消耗订阅额度。产物包含事件、实际工具结果、技能正文、Git 数据和 GUI 截图；不包含登录文件。
 
 The commands also require the agent/runtime and desktop paths documented in README. Follow the host project's exclusive GUI lock. Live tests use `codex/gpt-6-luna` by default and consume subscription quota. Evidence includes tool events/results, skill content, Git state and GUI screenshots, without authentication files.
