@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const popular = process.env.DSH2FORSION_SCENARIOS === 'popular'
+const nativeSkills = process.env.DSH2FORSION_SCENARIOS === 'native-skills'
 const agent = process.env.FORSION_AGENT
 const runtime = process.env.DSH2FORSION_ROOT
 const auth = process.env.DSH2FORSION_AUTH || join(homedir(), '.forsion-dev', 'provider-auth.json')
@@ -41,8 +42,8 @@ env.TANGU_PLUGINS = 'on'
 const child = spawn(process.execPath, [join(agent, 'dist/standalone/main.js'), '--host', '127.0.0.1', '--port', String(port), '--data-dir', join(home, 'state.db'), '--sandbox', 'off', '--cloud-url', 'http://127.0.0.1:9', '--token', token], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
 for (const stream of [child.stdout, child.stderr]) stream.on('data', b => appendFileSync(join(out, 'engine.log'), b.toString().replaceAll(token, '[local-auth]')))
 child.on('error', e => appendFileSync(join(out, 'engine.log'), String(e)))
-const api = async (path, body) => {
-  const res = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(300_000) })
+const api = async (path, body, method = body === undefined ? 'GET' : 'POST') => {
+  const res = await fetch(base + path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(300_000) })
   const value = await res.json()
   if (!res.ok) throw new Error(`${path}: ${res.status} ${JSON.stringify(value)}`)
   return value
@@ -53,7 +54,7 @@ const until = async (fn, label, ms = 180_000) => {
   while (Date.now() < end) { const value = await fn(); if (value) return value; await sleep(500) }
   throw new Error(`Timed out: ${label}`)
 }
-const save = () => writeFileSync(join(out, 'results.json'), JSON.stringify({ startedAt, model, only: [popular ? 'dshpopular' : 'dsh2forsion'], results }, null, 2))
+const save = () => writeFileSync(join(out, 'results.json'), JSON.stringify({ startedAt, model, only: [nativeSkills ? 'dshnative' : popular ? 'dshpopular' : 'dsh2forsion'], results }, null, 2))
 async function test(key, name, fn) {
   const begin = Date.now(), row = { key, name, ok: false }
   results.push(row)
@@ -125,14 +126,16 @@ try {
     assert.ok(JSON.stringify(models).includes(model), 'GPT 6 Luna available')
     unlinkSync(authLink)
     await until(async () => { const s = await api(prefix + '/status'); if (s.sidecar.state === 'failed') throw new Error(JSON.stringify(s.sidecar)); return s.sidecar.state === 'running' }, 'DSH ready')
-    const specs = popular ? (await import('./popular-scenarios.mjs')).packages : [`file:${join(repo, 'tests/fixtures/live-probe')}`, '@linxin666/dsh-client-ui-task-board@0.4.7', 'dsh-trae-skin@0.2.0']
+    const specs = nativeSkills ? ['@michengai/dsh-skills-manager@1.2.24'] : popular ? (await import('./popular-scenarios.mjs')).packages : [`file:${join(repo, 'tests/fixtures/live-probe')}`, '@linxin666/dsh-client-ui-task-board@0.4.7', 'dsh-trae-skin@0.2.0']
     for (const spec of specs) {
       console.log(`install ${spec}`)
       const installed = await api(prefix + '/plugins/install', { spec })
       assert.equal(installed.status, 'installed', JSON.stringify(installed))
     }
   })
-  if (popular) {
+  if (nativeSkills) {
+    await (await import('./native-skill-scenarios.mjs')).runScenarios({ api, prefix, run, test, out, shared, workspace, until })
+  } else if (popular) {
     await (await import('./popular-scenarios.mjs')).runScenarios({ api, prefix, run, test, out, shared, workspace, model })
   } else {
   const probe = 'dsh__acceptance_probe', suffix = randomUUID().slice(0, 8)

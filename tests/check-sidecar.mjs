@@ -8,7 +8,7 @@
 //     从网上真装一遍运行时（约 1.1 GB），走界面上「下载并启动」那条路由。
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -41,10 +41,12 @@ const router = {
   post: (p, h) => routes.set(`POST ${p}`, h),
 }
 let meta = null
+let skillProvider
 const ctx = {
   paths: { pluginDir, dataDir },
   sdk: { pluginStore: { getScopeSettings: () => settings, isPluginEnabledSync: () => true } },
   registerPlugin: m => { meta = m },
+  registerSkillProvider: p => { skillProvider = p },
   registerScopedRoutes: fn => fn(router),
   log: line => console.log(`  [engine] ${line}`),
 }
@@ -168,6 +170,20 @@ try {
     assert.equal(asked, 3)
     assert.equal(decided, asked)
     assert.equal(open, last, 'only the currently executing audit call remains open')
+  })
+
+  await it('native skill provider observes DSH file content, invocation policy and deletion', async () => {
+    const dir = join(dataDir, 'home/skills/release-review'), file = join(dir, 'SKILL.md')
+    await mkdir(dir, { recursive: true })
+    const raw = '---\nname: release-review\ndescription: Review a release\n---\nNative skill evidence'
+    await writeFile(file, raw)
+    await waitFor('skill discovered', async () => (await skillProvider.list()).some(s => s.id === 'release-review' && s.content.includes('Native skill evidence')), 15_000)
+    await writeFile(file, raw.replace('description:', 'disable-model-invocation: true\ndescription:'))
+    assert.equal((await skillProvider.list()).some(s => s.id === 'release-review'), false)
+    await writeFile(file, raw)
+    await waitFor('skill enabled again', async () => (await skillProvider.list()).some(s => s.id === 'release-review'), 15_000)
+    await rm(file)
+    assert.equal((await skillProvider.list()).some(s => s.id === 'release-review'), false)
   })
 
   await it('a plugin that bundles its own copy of a DSH core package is stopped before it touches the profile', async () => {

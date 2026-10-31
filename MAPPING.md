@@ -23,7 +23,8 @@ The goal is native use of DSH agent capabilities in Tangu and WebUI contribution
 | 主题 | `settings` 的 `ui-theme.preference` | 跟随 Forsion 的明暗（`html[data-mode]`），写进 DSH 设置 | ✅ |
 | 语言 | `settings` 的 `locale.preference` | 跟随 Forsion 的界面语言（zh / en） | ✅ |
 | 登录 | DSH Web 的一次性 token → SameSite=Strict cookie | 引擎半身拿 token 换 cookie 调 RPC；webview 打开带 token 的地址自己换 | ✅ |
-| 技能、MCP、模型提供方 | DSH 自己的配置 | 当前只在 DSH 内生效；需要映射到 Tangu 的能力注册与配置，不以 DSH 内可用判定完成 | ⏳ 目标缺口 |
+| 管理目录技能 | DSH 官方文件来源 + `skills.list/get` | 通过宿主 `registerSkillProvider` 进入原生技能列表与 `use_skill`，ID 为 `local:plugin/dsh2forsion/dsh/<name>`；只读、归属明确，尊重禁用与删除 | 已实现；需要新宿主接口，未发布 |
+| 项目技能、MCP、模型提供方 | DSH 自己的配置 | 本切片未导入项目/其他 CLI 技能；MCP 与模型提供方仍需独立适配 | ⏳ 目标缺口 |
 | 子进程、原生依赖 | `node-pty`、`koffi` 等 | 运行时只给 DSH 自己的三个原生包跑构建；插件一律 `--ignore-scripts` | ✅ |
 
 ## 下一阶段的验收 / Next-stage acceptance

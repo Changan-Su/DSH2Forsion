@@ -92,12 +92,23 @@ export function createPlugin() {
       }
       state = { shutdown }
 
+      // Host owns namespacing and revokes this provider on disable/unload.
+      // Old hosts keep tools working; they must not claim native skill support.
+      if (ctx.registerSkillProvider) ctx.registerSkillProvider({
+        id: 'dsh',
+        list: async ({ signal } = {}) => {
+          if (disposed || !store.isPluginEnabledSync(PLUGIN_ID) || sidecar.state !== 'running') return []
+          const { skills } = await sidecar.bridge('/skills', { signal })
+          return disposed ? [] : skills
+        },
+      })
+
       ctx.registerPlugin({
         id: PLUGIN_ID,
         name: 'DSH2Forsion',
         nameEn: 'DSH2Forsion',
-        description: '在 Forsion 里运行 DeepSeek Harness 插件：管理 DSH 运行时，并把 DSH 插件的工具交给 Tangu。',
-        descriptionEn: 'Run DeepSeek Harness plugins in Forsion: manages the DSH runtime and offers DSH plugin tools to Tangu.',
+        description: '让 Tangu 使用 DeepSeek Harness 插件的工具和技能，并管理其兼容运行时。原生技能需要新版宿主支持。',
+        descriptionEn: 'Use DeepSeek Harness plugin tools and skills in Tangu, with a managed compatibility runtime. Native skills require host support.',
         scopes: ['global'],
         defaultEnabled: true,
         settings: {
@@ -135,6 +146,7 @@ export function createPlugin() {
         promptSections: tools.sections.map(s => s.name),
         pluginJob: plugins.busy,
         settings: settings(),
+        nativeSkills: { supported: typeof ctx.registerSkillProvider === 'function' },
       })
 
       ctx.registerScopedRoutes(router => {

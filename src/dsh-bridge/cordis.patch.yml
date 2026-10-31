@@ -1,4 +1,14 @@
 # DSH2Forsion bridge row (the Forsion engine half talks to it over /forsion-bridge)
 - insert:
+    # Web mode leaves filesystem discovery to interactive presets. External
+    # Tangu calls deliberately do not mount those presets or model drivers.
+    # Expose only this isolated profile's managed skills via DSH's own provider.
+    - id: dsh2forsion-managed-skills
+      name: '@deepseek-ai/dsh-skill-filesystem'
+      config:
+        providerName: dsh2forsion-managed
+        includeDefaultRoots: false
+        customSkillDirs:
+          - !!js process.getBuiltinModule('node:path').join(process.env.DSH_HOME, 'skills')
     - id: dsh2forsion-bridge
       name: 'dsh2forsion-bridge'
