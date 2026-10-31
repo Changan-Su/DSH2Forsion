@@ -71,6 +71,7 @@ async function main() {
   delete env.TANGU_BUNDLE_DIRS
   env.TANGU_PLUGINS = 'on'
   const shot = async (page, name) => {
+    await page.bringToFront()
     await page.waitForTimeout(400)
     const geometry = await page.evaluate(async () => {
       const wv = document.querySelector('.d2f-space webview')
@@ -86,6 +87,14 @@ async function main() {
   }
 
   let app
+  const restart = async () => {
+    await closeApp(app)
+    app = await electron.launch({ args: [`--user-data-dir=${userData}`, '--lang=zh-CN', DESKTOP], cwd: DESKTOP, env, timeout: 90_000 })
+    const page = await app.firstWindow()
+    await page.waitForSelector('.rb', { timeout: 60_000 })
+    await until(async () => (await page.evaluate(() => window.tangu.backendStatus())).state === 'ready', 'restarted managed engine', 120_000)
+    return { app, page }
+  }
   try {
     if (liveAuth && !fs.existsSync(authLink)) {
       fs.symlinkSync(process.env.DSH2FORSION_AUTH || path.join(os.homedir(), '.forsion-dev/provider-auth.json'), authLink)
@@ -104,17 +113,24 @@ async function main() {
     const nativeWindow = await app.browserWindow(win)
     await nativeWindow.evaluate(window => window.setContentSize(1360, 860))
     await win.waitForSelector('#root')
-    await win.waitForTimeout(1000)
-    for (const label of ['跳过引导', 'Skip onboarding', 'Skip']) {
-      const b = win.getByRole('button', { name: label, exact: true })
-      if (await b.count()) { await b.click(); break }
-    }
-    await win.waitForSelector('.rb')
+    await until(async () => {
+      if (await win.locator('.rb').isVisible()) return true
+      for (const label of ['跳过引导', 'Skip onboarding', 'Skip']) {
+        const b = win.getByRole('button', { name: label, exact: true })
+        if (await b.isVisible()) { await b.click(); break }
+      }
+      return false
+    }, 'onboarding dismissed and Ribbon visible')
     await until(async () => (await win.evaluate(() => window.tangu.backendStatus())).state === 'ready', 'managed engine', 120_000)
 
     // ① Ribbon 上有 DSH（Space 多了宿主会收进「更多」），点开是下载说明（或已链好运行时时直接起）
     const visible = '.rb [data-space-id="dsh2forsion-dsh"]:visible'
     const dsh = await until(async () => {
+      // Onboarding can arrive after the first shell frame while preferences load.
+      for (const label of ['跳过引导', 'Skip onboarding', 'Skip']) {
+        const skip = win.getByRole('button', { name: label, exact: true })
+        if (await skip.isVisible()) { await skip.click(); return null }
+      }
       if (!(await win.locator(visible).count())) {
         await win.locator('.rb-more[data-rb-more="top"]:visible').first().click().catch(() => {})
         await win.waitForTimeout(600)
@@ -153,6 +169,13 @@ async function main() {
     check('DSH 网页跟随 Forsion 用中文', /[一-鿿]/.test(title))
     await win.waitForTimeout(2500)
     await shot(win, '03-dsh-space-zh')
+
+    // Targeted reruns reuse an already installed live seed; the normal path below
+    // separately exercises management, sidecar restart and theme propagation.
+    if (process.env.DSH2FORSION_POPULAR_ONLY === '1') {
+      await require('./popular-loop.cjs')({ app, win, settings: win, home, seed, check, until, shot, shots: SHOTS, restart })
+      return
+    }
 
     const originBefore = new URL(src).origin
     // ③ 管理页：装一个插件，工具出现在列表里
@@ -229,16 +252,9 @@ async function main() {
     check("Forsion 切深色后 DSH 网页也是深色", /dark/.test(darkScheme), `forsion=${mode} dsh ${before} → ${darkScheme}`)
     await win.waitForTimeout(1500)
     await shot(win, '06-dsh-space-dark')
-    if (process.env.DSH2FORSION_FULL === '1') {
-      await require('./full-loop.cjs')({ app, win, settings, home, seed, check, until, shot, shots: SHOTS,
-        restart: async () => {
-          await closeApp(app)
-          app = await electron.launch({ args: [`--user-data-dir=${userData}`, '--lang=zh-CN', DESKTOP], cwd: DESKTOP, env, timeout: 90_000 })
-          const page = await app.firstWindow()
-          await page.waitForSelector('.rb', { timeout: 60_000 })
-          await until(async () => (await page.evaluate(() => window.tangu.backendStatus())).state === 'ready', 'restarted managed engine', 120_000)
-          return { app, page }
-        },
+    if (process.env.DSH2FORSION_FULL === '1' || process.env.DSH2FORSION_POPULAR === '1') {
+      await require(process.env.DSH2FORSION_POPULAR === '1' ? './popular-loop.cjs' : './full-loop.cjs')({ app, win, settings, home, seed, check, until, shot, shots: SHOTS,
+        restart,
       })
     }
   } catch (error) {
@@ -261,6 +277,7 @@ async function main() {
     throw error
   } finally {
     fs.writeFileSync(path.join(SHOTS, 'results.json'), JSON.stringify(results, null, 2))
+    process.exitCode = results.some(r => !r.ok) ? 1 : 0
     // app.close() 在这台无显示的机器上会挂住：限时关，到点强杀（sidecar 有父进程看门狗，不会留孤儿）
     try { if (app) await closeApp(app) }
     finally { if (createdAuthLink && fs.lstatSync(authLink, { throwIfNoEntry: false })) fs.unlinkSync(authLink) }

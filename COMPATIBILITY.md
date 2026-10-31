@@ -14,6 +14,14 @@
 
 ## 功能级验收（Windows，2026-10-31）
 
+**目标口径**：DSH Agent 能力应直接给 Tangu 使用，WebUI 贡献应直接给 Forsion 使用。以下“DSH 页面可见/操作”只算底座验证，不代表无缝 WebUI 兼容。技能文件创建也不代表 Tangu 已发现并使用该技能。
+
+**Target scope:** agent capabilities must be usable in Tangu and WebUI contributions in Forsion. Embedded-page checks below are runtime baselines, not native UI compatibility. Creating a DSH skill file does not prove Tangu discovers or uses that skill.
+
+内部桥 `0.1.4` 的热门插件流程经 GPT 6 Luna 实测 4/4（包含引擎发现）：`dsh-free-search@0.9.26` 返回真实 npm 来源，`task-board@0.4.7` 创建/读取任务且重启后由新 Tangu 会话修改，`dsh-skills-manager@1.2.24` 经审批创建实际 Markdown 文件。Windows sidecar 14/14 验证 DSH 内层审批审计、重启轮次、异常及生命周期；详细版本和边界见 [SCENARIOS.md](SCENARIOS.md)。
+
+Bridge `0.1.4` passed 4/4 popular-plugin live checks with GPT 6 Luna, including discovery: real npm search, task creation/read/update across restart, and an approval-requiring skill file creation. Windows sidecar passed 14/14 checks, including DSH approval audit events and persisted turn numbering. These results do not expand the UI or skill-consumption scope described above.
+
 在真实 Forsion / Tangu 引擎、DSH `0.2.1-rc.2` 上，用 `codex/gpt-6-luna` 验证下列限定场景。它们不改变上面的装载评级，也不代表这些插件的所有功能都通过。
 
 | 样本 | 已验证范围 |

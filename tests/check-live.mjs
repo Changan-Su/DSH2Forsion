@@ -11,6 +11,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const popular = process.env.DSH2FORSION_SCENARIOS === 'popular'
 const agent = process.env.FORSION_AGENT
 const runtime = process.env.DSH2FORSION_ROOT
 const auth = process.env.DSH2FORSION_AUTH || join(homedir(), '.forsion-dev', 'provider-auth.json')
@@ -52,7 +53,7 @@ const until = async (fn, label, ms = 180_000) => {
   while (Date.now() < end) { const value = await fn(); if (value) return value; await sleep(500) }
   throw new Error(`Timed out: ${label}`)
 }
-const save = () => writeFileSync(join(out, 'results.json'), JSON.stringify({ startedAt, model, only: ['dsh2forsion'], results }, null, 2))
+const save = () => writeFileSync(join(out, 'results.json'), JSON.stringify({ startedAt, model, only: [popular ? 'dshpopular' : 'dsh2forsion'], results }, null, 2))
 async function test(key, name, fn) {
   const begin = Date.now(), row = { key, name, ok: false }
   results.push(row)
@@ -124,12 +125,16 @@ try {
     assert.ok(JSON.stringify(models).includes(model), 'GPT 6 Luna available')
     unlinkSync(authLink)
     await until(async () => { const s = await api(prefix + '/status'); if (s.sidecar.state === 'failed') throw new Error(JSON.stringify(s.sidecar)); return s.sidecar.state === 'running' }, 'DSH ready')
-    for (const spec of [`file:${join(repo, 'tests/fixtures/live-probe')}`, '@linxin666/dsh-client-ui-task-board@0.4.7', 'dsh-trae-skin@0.2.0']) {
+    const specs = popular ? (await import('./popular-scenarios.mjs')).packages : [`file:${join(repo, 'tests/fixtures/live-probe')}`, '@linxin666/dsh-client-ui-task-board@0.4.7', 'dsh-trae-skin@0.2.0']
+    for (const spec of specs) {
       console.log(`install ${spec}`)
       const installed = await api(prefix + '/plugins/install', { spec })
       assert.equal(installed.status, 'installed', JSON.stringify(installed))
     }
   })
+  if (popular) {
+    await (await import('./popular-scenarios.mjs')).runScenarios({ api, prefix, run, test, out, shared, workspace, model })
+  } else {
   const probe = 'dsh__acceptance_probe', suffix = randomUUID().slice(0, 8)
   await test('dshapprove', 'Real model approval and execution in the selected directory', async row => {
     const marker = `D2F-approve-${suffix}`
@@ -175,6 +180,7 @@ try {
     assert.ok(trace.approvals.length >= 4)
     writeFileSync(join(out, 'gui-seed.json'), JSON.stringify({ shared, workspace, marker, description: `updated-${suffix}`, model }))
   })
+  }
 } catch (error) {
   console.error(error.message)
   process.exitCode = 1

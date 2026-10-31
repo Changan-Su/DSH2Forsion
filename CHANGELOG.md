@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- 修复带 DSH 二次审批的插件工具（例如 Skills Manager 创建技能）无法执行：桥接调用现在具有完整执行轮次和审批审计；同目录调用顺序执行，异常及取消正确结束轮次。
+- 已获 Tangu 批准的单次调用优先处理对应 DSH 审批，避免被 DSH 网页审批处理器无限等待；其他调用保持原审批流程。
+- Added reproducible real-model and Electron workflows for Free Search, Skills Manager, Task Board and Git Graph; see [SCENARIOS.md](SCENARIOS.md).
+- Fixed DSH approval-requiring tools by enclosing each external call in an audited turn and serializing calls per working directory. Exceptions and cancellation close the turn. The bridge consumes only the matching Tangu-approved request before the DSH web approval handler.
+
 - 新安装使用随包发布的完整依赖锁，固定 DSH、pnpm 及传递依赖的版本和官方完整性哈希；切换镜像时仍校验同一份锁。
 - 已安装的 v0.1 运行时不自动重装；重复安装直接复用正常运行时。缺失 pnpm、版本不符或损坏的就绪标记不再误报为可用。
 - New installations pin DSH, pnpm and their transitive dependencies using a shipped lockfile with official integrity hashes, including when downloading from a mirror.

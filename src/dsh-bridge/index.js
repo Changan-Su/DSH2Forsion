@@ -5,7 +5,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 
 export const name = 'dsh2forsion-bridge'
-export const inject = ['tools', 'webServer', 'systemPrompt']
+export const inject = ['tools', 'webServer', 'systemPrompt', 'sessionProjections']
 
 const PREFIX = '/forsion-bridge'
 const MAX_BODY = 1 << 20
@@ -28,7 +28,7 @@ export function apply(ctx) {
       return 'allowed-once'
     }
     return next()
-  })
+  }, { prepend: true })
   watchParent(ctx, log)
   const agents = new AgentPool(ctx, log)
   const dispose = ctx.webServer.register({
@@ -75,14 +75,17 @@ async function handle(ctx, state, req, res) {
     // 调用方断开才中止。别挂在 req 的 close 上：新版 Node 里请求体读完就会触发它
     res.once('close', () => { if (!res.writableEnded) controller.abort() })
     try {
-      const agent = await state.agents.forCwd(body.cwd)
-      controller.signal.throwIfAborted()
-      if (body.approved === true) state.approved.set(callId, Date.now() + APPROVAL_TTL_MS)
-      const result = await ctx.tools.execute({
-        callId, name: String(body.name), arguments: body.arguments ?? {}, signal: controller.signal,
-        ...(agent ? { agent } : {}),
+      const executed = await state.agents.execute(body.cwd, controller.signal, async (agent, signal) => {
+        if (body.approved === true) state.approved.set(callId, Date.now() + APPROVAL_TTL_MS)
+        try {
+          const result = await ctx.tools.execute({
+            callId, name: String(body.name), arguments: body.arguments ?? {}, signal,
+            ...(agent ? { agent } : {}),
+          })
+          return { agent: Boolean(agent), result }
+        } finally { state.approved.delete(callId) }
       })
-      return send(res, 200, { callId, agent: Boolean(agent), result })
+      return send(res, 200, { callId, ...executed })
     } finally {
       state.approved.delete(callId)
     }
@@ -132,6 +135,45 @@ class AgentPool {
     this.ctx = ctx
     this.log = log
     this.byCwd = new Map()
+    this.pendingByCwd = new Map()
+    this.abort = new AbortController()
+  }
+
+  // These archived agents only carry external tool calls; never wake their model driver.
+  // DSH approval audit events require a turn, even when Tangu supplied the model call.
+  async execute(cwd, signal, fn) {
+    signal = AbortSignal.any([signal, this.abort.signal])
+    signal.throwIfAborted()
+    const agent = await this.forCwd(cwd)
+    signal.throwIfAborted()
+    if (!agent) return fn(undefined, signal)
+    const previous = this.pendingByCwd.get(cwd) ?? Promise.resolve()
+    const pending = previous.catch(() => {}).then(() => {
+      signal.throwIfAborted()
+      return agent.runMaintenance(async maintenanceSignal => {
+        const combined = AbortSignal.any([signal, maintenanceSignal])
+        combined.throwIfAborted()
+        const boundary = this.ctx.get('sessionProjections')?.stateOf(agent.session, 'turnBoundary')
+        if (!boundary || boundary.openTurnStartSeq !== null) throw new Error('DSH bridge session has no available turn boundary')
+        const turn = boundary.lastTurn + 1
+        agent.session.append('turn/start', { turn })
+        let reason = { kind: 'completed' }
+        try {
+          const value = await fn(agent, combined)
+          if (value.result?.isError) reason = { kind: 'error', error: { message: 'External tool returned an error', code: 'UNKNOWN' } }
+          return value
+        } catch (error) {
+          reason = { kind: 'error', error: { message: String(error?.message ?? error), code: 'UNKNOWN' } }
+          throw error
+        } finally {
+          if (combined.aborted) reason = { kind: 'aborted', reason: { kind: this.abort.signal.aborted || maintenanceSignal.aborted ? 'disposed' : 'user' } }
+          agent.session.append('turn/end', { turn, reason })
+        }
+      })
+    })
+    this.pendingByCwd.set(cwd, pending)
+    try { return await pending }
+    finally { if (this.pendingByCwd.get(cwd) === pending) this.pendingByCwd.delete(cwd) }
   }
 
   async forCwd(cwd) {
@@ -172,6 +214,7 @@ class AgentPool {
   }
 
   async dispose() {
+    this.abort.abort({ kind: 'disposed' })
     const handles = await Promise.all([...this.byCwd.values()].map(p => p.catch(() => null)))
     this.byCwd.clear()
     await Promise.all(handles.map(h => h?.dispose?.().catch(() => {})))
