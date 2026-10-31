@@ -71,6 +71,7 @@ async function main() {
   delete env.TANGU_BUNDLE_DIRS
   env.TANGU_PLUGINS = 'on'
   const shot = async (page, name) => {
+    await page.bringToFront()
     await page.waitForTimeout(400)
     const geometry = await page.evaluate(async () => {
       const wv = document.querySelector('.d2f-space webview')
@@ -229,8 +230,8 @@ async function main() {
     check("Forsion 切深色后 DSH 网页也是深色", /dark/.test(darkScheme), `forsion=${mode} dsh ${before} → ${darkScheme}`)
     await win.waitForTimeout(1500)
     await shot(win, '06-dsh-space-dark')
-    if (process.env.DSH2FORSION_FULL === '1') {
-      await require('./full-loop.cjs')({ app, win, settings, home, seed, check, until, shot, shots: SHOTS,
+    if (process.env.DSH2FORSION_FULL === '1' || process.env.DSH2FORSION_POPULAR === '1') {
+      await require(process.env.DSH2FORSION_POPULAR === '1' ? './popular-loop.cjs' : './full-loop.cjs')({ app, win, settings, home, seed, check, until, shot, shots: SHOTS,
         restart: async () => {
           await closeApp(app)
           app = await electron.launch({ args: [`--user-data-dir=${userData}`, '--lang=zh-CN', DESKTOP], cwd: DESKTOP, env, timeout: 90_000 })

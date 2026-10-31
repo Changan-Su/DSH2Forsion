@@ -155,6 +155,21 @@ try {
     assert.equal(out, `echo: after restart (cwd ${proj})`)
   })
 
+  await it('DSH approval audit pairs survive restart inside sequential external turns', async () => {
+    const out = await tool('dsh__fixture_echo').execute({ text: 'audit' }, { cwd: join(scratch, 'project-a'), signal: new AbortController().signal })
+    const events = JSON.parse(out)
+    let open = null, last = 0, asked = 0, decided = 0
+    for (const event of events) {
+      if (event.type === 'turn/start') { assert.equal(open, null); assert.equal(event.data.turn, last + 1); open = event.data.turn; last = open }
+      else if (event.type === 'turn/end') { assert.equal(event.data.turn, open); open = null }
+      else if (event.type === 'approval/asked' || event.type === 'approval/decided') { assert.notEqual(open, null, JSON.stringify(event)); if (event.type === 'approval/asked') asked++; if (event.type === 'approval/decided') { decided++; assert.equal(event.data.outcome, 'allowed-once') } }
+    }
+    assert.ok(last >= 4, 'turn numbering continues after the sidecar restart')
+    assert.equal(asked, 3)
+    assert.equal(decided, asked)
+    assert.equal(open, last, 'only the currently executing audit call remains open')
+  })
+
   await it('a plugin that bundles its own copy of a DSH core package is stopped before it touches the profile', async () => {
     const r = await call('POST', '/plugins/install', { spec: `file:${badShadow}` })
     assert.equal(r.status, 'blocked', JSON.stringify(r))

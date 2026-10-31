@@ -14,6 +14,9 @@ export function apply(ctx) {
       render: (_args, value) => [{ type: 'text', text: value }],
     },
     async execute(args, exec) {
+      const approval = await ctx.get('approval').request({ agent: exec.agent, callId: exec.callId, toolName: 'fixture_echo', signal: exec.signal })
+      if (approval !== 'allowed-once') throw new Error(`fixture approval: ${approval}`)
+      if (args.text === 'audit') return JSON.stringify(exec.agent.session.snapshotEvents().filter(e => /^(turn\/|approval\/)/.test(e.type)))
       const wd = ctx.get('workingDirectory')
       const cwd = exec.agent && wd ? wd.get(exec.agent.session) : process.cwd()
       return `echo: ${args.text} (cwd ${cwd})`

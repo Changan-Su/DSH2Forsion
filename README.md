@@ -1,15 +1,17 @@
 # DSH2Forsion
 
-Run DeepSeek Harness (DSH) plugins inside [Forsion](https://github.com/Changan-Su/Forsion). Compatible with DeepSeek Harness plugins; not made or endorsed by DeepSeek.
+Make DeepSeek Harness (DSH) agent capabilities usable by Tangu and its WebUI contributions usable by [Forsion](https://github.com/Changan-Su/Forsion). Compatible with DeepSeek Harness plugins; not made or endorsed by DeepSeek.
 
-让 DeepSeek Harness 插件在 Forsion 上运行的兼容插件，思路类似 Minecraft 的 Fabric / Forge。做法是 Connector 式：Forsion 里跑一份真的 DSH 运行时（sidecar 子进程），DSH 插件原样装进去，只在边界上做适配。
+愿景是让 DSH 的 Agent 级能力直接服务 Tangu，让 DSH 的 WebUI 级内容直接融入 Forsion。用户沿用 Forsion / Tangu 的工作区、会话、模型、审批与界面入口，不必操作第二套 DSH 应用。兼容运行时可以在后台存在，但不是产品入口或验收终点。
+
+The compatibility runtime may remain an implementation detail. Users should keep Forsion/Tangu workspaces, conversations, models, approvals and navigation instead of operating a second application. The current whole-page DSH Space is a diagnostic compatibility baseline, not completion of that vision.
 
 | DSH 插件的哪一半 | 到了 Forsion 哪里 |
 |---|---|
 | 宿主半身（服务、存储、后台任务） | 留在 sidecar 里，照 DSH 原样运行 |
 | 工具 | 进 Tangu 的工具表，名字前缀 `dsh__`，**每次调用都先问你**（完全放行档也问） |
 | 系统提示词分节 | 进 Tangu 的系统提示词（限 4000 字） |
-| 界面（页面、面板、设置、插件市场） | DSH Space：整幅嵌入 DSH 自己的 Web 界面，主题与语言跟随 Forsion |
+| 界面（页面、面板、设置、插件市场） | 当前只提供整页 DSH 诊断入口；插件 WebUI 直接融入 Forsion 尚未完成 |
 
 逐项对照见 [MAPPING.md](MAPPING.md)，兼容数据见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
@@ -54,6 +56,10 @@ DSH 插件是**不在沙箱里**的本机代码，权限和你的账户一样。
 - **工具每次都问**：Tangu 侧声明 `approval: 'always'`；你批了，桥才替这一次调用回答 DSH 侧的审批。
 
 ## 开发 / Development
+
+社区常用插件的真实发布检查流程、固定版本和复跑命令见 [SCENARIOS.md](SCENARIOS.md)。内部桥 `0.1.4` 为外部工具调用建立 DSH 执行轮次，并正确接管已获 Tangu 批准的单次审批，修复 Skills Manager 创建技能失败及等待网页审批的问题。
+
+See [SCENARIOS.md](SCENARIOS.md) for real community-plugin workflows and reproducible commands. Internal bridge `0.1.4` supplies audited DSH turns and handles the matching Tangu-approved request before the web approval listener, fixing skill creation errors and approval stalls.
 
 ```sh
 npm ci
