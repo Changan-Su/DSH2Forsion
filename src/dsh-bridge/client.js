@@ -14,9 +14,11 @@ window.__ModuleLoader__.load({ id: 'dsh2forsion-bridge', factory() {
       ctx.effect(() => {
         let handled = ''
         let fallback = null
+        let waitingFor = ''
         const open = (id, at) => {
           handled = at
           clearTimeout(fallback)
+          waitingFor = ''
           try { ctx.uiWorkspace.openSession(id) } catch (error) { console.warn('[dsh2forsion] could not open the session', error) }
           try { history.replaceState(history.state, '', location.pathname + location.search) } catch { /* 拿不掉也不影响这次落点 */ }
         }
@@ -25,8 +27,11 @@ window.__ModuleLoader__.load({ id: 'dsh2forsion-bridge', factory() {
           const id = wanted()
           if (!id || at === handled) return
           if (ctx.sessions.list.getSnapshot().byId[id] !== undefined) { open(id, at); return }
-          // 会话列表还没加载到这一场：等它出现；几秒后还没有就直接开（openSession 自己会把它取回来）
+          // 会话列表还没加载到这一场：等它出现；几秒后还没有就直接开（openSession 自己会把它取回来）。
+          // 时限按这一次落点只设一次：列表别的会话一直在变也不会把它往后推
+          if (waitingFor === at) return
           clearTimeout(fallback)
+          waitingFor = at
           fallback = setTimeout(() => { if (hash() === at && handled !== at) open(id, at) }, 4000)
         }
         const unsubscribe = ctx.sessions.list.subscribe(check)

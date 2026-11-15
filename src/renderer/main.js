@@ -518,11 +518,11 @@ ctx.registerView({
     }
     reviewTimer = setTimeout(pollReviews, REVIEW_MS)
 
-    // 已经开着的工作台：只换地址 # 那段（同一个页面里跳，不重载）；还没嵌好页面的，等 mountSurface 带上
+    // 已经开着的工作台：只换地址 # 那段（宿主照页面此刻的地址算，同一个页面里跳，不重载）；还没嵌好页面的，等 mountSurface 带上
     const land = () => {
       if (phase !== 'surface' || !surface?.navigate || !mountedUrl || !landing) return
       const l = takeLanding()
-      if (l) surface.navigate(mountedUrl + landingHash(l))
+      if (l) surface.navigate(landingHash(l))
       surface.focus?.()
     }
     landers.add(land)
@@ -602,6 +602,7 @@ async function harnessRows() {
 let holdGen = 0
 const holdThenOpen = async ({ sessionId }) => {
   const gen = ++holdGen
+  landing = null // 前一场还没用上的落点作废：这次 hold 没成功时，工作台不能落到上一场
   try {
     const r = await call('/hold', { method: 'POST', body: { sessionId } })
     if (gen !== holdGen) return

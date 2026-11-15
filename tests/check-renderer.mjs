@@ -271,6 +271,62 @@ await it('right-clicking two conversations quickly: the later one wins even if t
   dispose()
 })
 
+await it('a newer right-click whose hold fails drops the earlier, unused landing (the workbench does not land on the older conversation)', async () => {
+  let hold = { ok: true, engineSessionId: 'dsh-A', state: 'open' }
+  const routes = {
+    '/status': () => status(),
+    'POST /workbench': { url: 'http://127.0.0.1:4100/?token=abc', base: 'http://127.0.0.1:4100' },
+    'POST /appearance': { ok: true }, '/reviews': { reviews: [] },
+    'POST /hold': () => hold,
+  }
+  const { reg, calls } = setup({ withSurface: true, routes })
+  reg.harness.sessionActions[0].run({ sessionId: 'A' })
+  await until(() => calls.filter(c => c.openView === 'workbench').length === 1)
+  hold = { ok: false, status: 409, code: 'busy', detail: 'x' }
+  reg.harness.sessionActions[0].run({ sessionId: 'B' })
+  await until(() => calls.filter(c => c.openView === 'workbench').length === 2)
+  const el = document.createElement('div')
+  const dispose = reg.views.workbench.mount(el)
+  const surface = await until(() => el.querySelector('.surface'), 6000)
+  assert.equal(surface.dataset.url, 'http://127.0.0.1:4100/?token=abc')
+  dispose()
+})
+
+await it('bridge web module: lands once the conversation shows up; busy session lists do not push the fallback back', async () => {
+  const clientSrc = await readFile(join(repo, 'src/dsh-bridge/client.js'), 'utf8')
+  const window = new Window({ url: 'http://127.0.0.1:4100/?token=abc' })
+  let mod = null
+  const subs = new Set()
+  let byId = {}
+  const opened = []
+  window.__ModuleLoader__ = { load: (m) => { mod = m } }
+  const run = new window.Function('window', 'globalThis', 'location', 'history', clientSrc)
+  run(window, window, window.location, window.history)
+  const def = mod.factory()
+  assert.equal([...def.inject].join(','), 'uiWorkspace,sessions')
+  const cleanups = []
+  def.apply({
+    uiWorkspace: { openSession: (id) => opened.push(id) },
+    sessions: { list: { getSnapshot: () => ({ byId }), subscribe: (f) => { subs.add(f); return () => subs.delete(f) } } },
+    effect: (f) => { cleanups.push(f()) },
+  })
+  // 列表里已经有这一场：马上落过去，并把 # 那段从地址里拿掉
+  byId = { s1: {} }
+  window.location.hash = '#d2f-session=s1&n=1'
+  await until(() => opened.length === 1)
+  assert.equal(opened[0], 's1')
+  assert.equal(window.location.hash, '')
+  // 列表还没有这一场：别的会话一直在更新，也在约 4 秒时直接开（不被一次次往后推）
+  window.location.hash = '#d2f-session=s2&n=2'
+  const t0 = Date.now()
+  const noise = setInterval(() => { for (const f of subs) f() }, 300)
+  try { await until(() => opened.length === 2, 7000) } finally { clearInterval(noise) }
+  assert.equal(opened[1], 's2')
+  assert.ok(Date.now() - t0 < 5500, `fallback fired after ${Date.now() - t0} ms`)
+  for (const c of cleanups) c?.()
+  await window.happyDOM.close()
+})
+
 await it('the workbench lands on the held conversation: on first mount through the address, when already open by changing only the # part', async () => {
   const routes = {
     '/status': () => status(),
@@ -287,10 +343,10 @@ await it('the workbench lands on the held conversation: on first mount through t
   const dispose = reg.views.workbench.mount(el)
   const surface = await until(() => el.querySelector('.surface'), 6000)
   assert.equal(surface.dataset.url, 'http://127.0.0.1:4100/?token=abc#d2f-session=dsh-sess%2F1&n=1')
-  // 已经开着：同一个页面里只换 # 那段，不重新挂载
+  // 已经开着：只交给宿主 # 那段（宿主照页面此刻的地址换，登录后页面去掉了 ?token 也不整页重载），不重新挂载
   reg.harness.sessionActions[0].run({ sessionId: 's1' })
   await until(() => reg.surfaces[0].navigated.length === 1)
-  assert.equal(reg.surfaces[0].navigated[0], 'http://127.0.0.1:4100/?token=abc#d2f-session=dsh-sess%2F1&n=2')
+  assert.equal(reg.surfaces[0].navigated[0], '#d2f-session=dsh-sess%2F1&n=2')
   assert.equal(reg.surfaces.length, 1)
   // 没有落点的普通打开：地址里不带 #
   dispose()
