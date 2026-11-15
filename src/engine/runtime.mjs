@@ -12,7 +12,7 @@ import { run, tail } from './proc.mjs'
 export function runtimeInstalled(paths) {
   try {
     const marker = JSON.parse(readFileSync(paths.runtimeMarker, 'utf8'))
-    return marker.dsh === DSH_VERSION && marker.node === NODE_VERSION && marker.pnpm === PNPM_VERSION
+    return marker.dsh === (paths.dshVersion ?? DSH_VERSION) && marker.node === NODE_VERSION && marker.pnpm === PNPM_VERSION
       && existsSync(paths.nodeBin) && existsSync(paths.dshBin)
       && existsSync(marker.lockSha256 ? paths.pnpmBin : paths.legacyPnpmBin)
   } catch { return false }
@@ -107,10 +107,11 @@ function npm(paths, args, { registry, log, signal, cwd }) {
   return run(paths.nodeBin, [paths.npmCli, ...args], { cwd, env, timeoutMs: 1_200_000, onLine: log, signal })
 }
 
-async function installDsh(paths, { source, log, signal }) {
+async function installDsh(paths, { source, log, signal, files }) {
   await mkdir(paths.runtimeDir, { recursive: true })
-  const manifest = await readFile(new URL('../runtime/package.json', import.meta.url))
-  const lock = await readFile(new URL('../runtime/package-lock.json', import.meta.url))
+  // files: 跟版通道给的那一版（清单里带校验值，channel.mjs 已核过）；缺省是这个插件版本随包带的那份
+  const manifest = files ? Buffer.from(files.packageJson) : await readFile(new URL('../runtime/package.json', import.meta.url))
+  const lock = files ? Buffer.from(files.lock) : await readFile(new URL('../runtime/package-lock.json', import.meta.url))
   // Read the shipped files before invalidating an incomplete installation. Never resolve a new tree here.
   signal?.throwIfAborted()
   await rm(paths.runtimeMarker, { force: true })
@@ -120,7 +121,7 @@ async function installDsh(paths, { source, log, signal }) {
   for (const which of sources(source)) {
     signal?.throwIfAborted()
     const registry = NPM_REGISTRIES[which]
-    log(`npm ci @deepseek-ai/dsh@${DSH_VERSION}, pnpm@${PNPM_VERSION} (${which})`)
+    log(`npm ci @deepseek-ai/dsh@${paths.dshVersion ?? DSH_VERSION}, pnpm@${PNPM_VERSION} (${which})`)
     const r = await npm(paths, ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], { registry, log, signal, cwd: paths.runtimeDir })
     signal?.throwIfAborted()
     if (r.code !== 0) { lastError = new Error(`npm ci failed (${which}): ${tail(r.out, 5)}`); log(lastError.message); continue }
@@ -138,15 +139,15 @@ async function installDsh(paths, { source, log, signal }) {
 }
 
 /** 整套安装；可重复调用，已装好的部分跳过。 */
-export async function installRuntime(paths, { source = 'auto', log = () => {}, signal } = {}) {
+export async function installRuntime(paths, { source = 'auto', log = () => {}, signal, files } = {}) {
   signal?.throwIfAborted()
   // Includes pre-lock v0.1 installations: do not overwrite a working runtime on retry.
   if (runtimeInstalled(paths)) { log('runtime already installed'); return }
   await mkdir(paths.root, { recursive: true })
   await installNode(paths, { source, log, signal })
-  const { registry, lockSha256 } = await installDsh(paths, { source, log, signal })
+  const { registry, lockSha256 } = await installDsh(paths, { source, log, signal, files })
   signal?.throwIfAborted()
-  await writeFile(paths.runtimeMarker, JSON.stringify({ dsh: DSH_VERSION, node: NODE_VERSION, pnpm: PNPM_VERSION, registry, lockSha256, at: new Date().toISOString() }) + '\n')
+  await writeFile(paths.runtimeMarker, JSON.stringify({ dsh: paths.dshVersion ?? DSH_VERSION, node: NODE_VERSION, pnpm: PNPM_VERSION, registry, lockSha256, at: new Date().toISOString() }) + '\n')
   // npm 的下载缓存装完就没用了（约 260 MB）；装 DSH 插件用的是 pnpm 的 store，不在这里
   await rm(join(paths.cache, 'npm'), { recursive: true, force: true }).catch(() => {})
   log('runtime ready')

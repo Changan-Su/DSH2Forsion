@@ -1,5 +1,5 @@
 // 渲染半身检查：照宿主的方式（new Function('ctx', source)）在 happy-dom 里加载 plugin/main.js，
-// 用假 ctx 驱动 DSH Space 视图与管理面板的各条路径。
+// 用假 ctx 驱动 DSH 工作台、Harness 卡上的行、对话右键菜单、装插件体检卡与运行时管理页的各条路径。
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -9,7 +9,6 @@ import { Window } from 'happy-dom'
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..')
 const source = await readFile(join(repo, 'plugin/main.js'), 'utf8')
 const manifest = JSON.parse(await readFile(join(repo, 'plugin/manifest.json'), 'utf8'))
-const space = JSON.parse(await readFile(join(repo, 'plugin/spaces/dsh/space.json'), 'utf8'))
 
 let n = 0
 const it = async (name, fn) => { await fn(); n++; console.log(`ok ${n} ${name}`) }
@@ -20,7 +19,7 @@ const until = async (fn, ms = 3000) => {
   throw new Error('timed out waiting')
 }
 
-function setup({ locale = 'zh', routes = {}, withSurface = false, tangu = {} } = {}) {
+function setup({ locale = 'zh', routes = {}, withSurface = false, tangu = {}, harness = true } = {}) {
   const window = new Window({ url: 'http://localhost/' })
   globalThis.window = window
   globalThis.document = window.document
@@ -28,7 +27,7 @@ function setup({ locale = 'zh', routes = {}, withSurface = false, tangu = {} } =
   globalThis.MutationObserver = window.MutationObserver
   document.documentElement.setAttribute('data-mode', 'dark')
   const calls = []
-  const reg = { views: {}, settings: {}, commands: {} }
+  const reg = { views: {}, settings: {}, commands: {}, harness: null, refreshed: 0, notes: [], surfaces: [] }
   let loc = locale
   const localeSubs = new Set()
   const ctx = {
@@ -37,7 +36,8 @@ function setup({ locale = 'zh', routes = {}, withSurface = false, tangu = {} } =
     registerView: v => { reg.views[v.id] = v },
     registerSettingsView: v => { reg.settings[v.id] = v },
     registerCommand: c => { reg.commands[c.id] = c },
-    openView: id => calls.push({ openView: id }),
+    openView: (id, opts) => calls.push({ openView: id, location: opts?.location }),
+    notify: (message, opts) => reg.notes.push({ message, level: opts?.level }),
     app: { openSettings: target => calls.push({ openSettings: target }) },
     tangu: {
       ...tangu,
@@ -50,25 +50,37 @@ function setup({ locale = 'zh', routes = {}, withSurface = false, tangu = {} } =
       },
     },
   }
-  if (withSurface) ctx.ui = { mountWebSurface: (el, o) => { const d = document.createElement('div'); d.className = 'surface'; d.dataset.url = o.url; d.dataset.partition = o.partition; el.append(d); return () => d.remove() } }
+  if (harness) ctx.registerEngineHarness = def => { reg.harness = def; return { refresh: () => { reg.refreshed++ }, dispose() {} } }
+  if (withSurface) ctx.ui = { mountWebSurface: (el, o) => {
+    const d = document.createElement('div'); d.className = 'surface'; d.dataset.url = o.url; d.dataset.partition = o.partition; el.append(d)
+    const handle = { reloads: 0, opts: o, reload() { handle.reloads++ }, dispose() { d.remove() }, navigate() {}, focus() {} }
+    reg.surfaces.push(handle)
+    return handle
+  } }
   new Function('ctx', source)(ctx)
   const setLocale = l => { loc = l; for (const cb of localeSubs) cb(l) }
   return { window, ctx, reg, calls, setLocale }
 }
 
 const status = (over = {}) => ({
-  dshVersion: '0.2.1-rc.2', nodeVersion: 'v24.22.0',
-  runtime: { installed: true }, job: { running: false, lines: [] },
-  sidecar: { state: 'running' }, tools: [], promptSections: [], pluginJob: null, settings: {}, ...over,
+  pluginVersion: '0.2.0', dshVersion: '0.2.2-rc.3', pinnedVersion: '0.2.2-rc.3', nodeVersion: 'v24.22.0',
+  runtime: { installed: true, installedVersions: ['0.2.2-rc.3'], previous: null }, job: { running: false, lines: [] },
+  fusion: { home: '/home/u/.dsh', profile: 'forsion', incompatible: null, resident: true, events: [] },
+  channel: { published: null, latest: null }, sidecar: { state: 'running', base: 'http://127.0.0.1:4100' },
+  tools: [], promptSections: [], pluginJob: null, settings: { updateChannel: 'pinned' }, ...over,
 })
 
-await it('registers the space view, the settings page and two commands; the Space only needs the registered view', () => {
+
+await it('registers the workbench view, the runtime page, two commands and the DSH harness; no Space', () => {
   const { reg } = setup()
-  assert.deepEqual(Object.keys(reg.views), ['space', 'diagnostics'])
+  assert.deepEqual(Object.keys(reg.views), ['workbench'])
   assert.deepEqual(Object.keys(reg.settings), ['manage'])
-  assert.deepEqual(Object.keys(reg.commands).sort(), ['dsh2forsion-manage', 'dsh2forsion-open-space'])
-  for (const v of space.requires.views) assert.ok(v.startsWith(`plugin:${manifest.id}:`) && reg.views[v.split(':')[2]], v)
-  assert.equal(typeof reg.commands['dsh2forsion-open-space'].title, 'function')
+  assert.deepEqual(Object.keys(reg.commands).sort(), ['dsh2forsion-manage', 'dsh2forsion-open-workbench'])
+  assert.equal(reg.harness.engineId, 'dsh')
+  assert.deepEqual(reg.harness.sessionActions.map(a => a.id), ['open-in-workbench'])
+  assert.deepEqual(reg.harness.sessionActions[0].label, { zh: '在 DSH 工作台里打开', en: 'Open in the DSH workbench' })
+  assert.equal(manifest.spaces, undefined)
+  assert.equal(typeof reg.commands['dsh2forsion-open-workbench'].title, 'function')
 })
 
 await it('every string exists in both languages, English has no Chinese characters, placeholders match', () => {
@@ -81,9 +93,10 @@ await it('every string exists in both languages, English has no Chinese characte
   }
 })
 
-await it('first open: onboarding explains download size, source and trust; install polls until running, then embeds a webview', async () => {
+await it('first open: onboarding names the DSH folder and download; install polls, then the workbench mounts in the controlled surface', async () => {
   let polls = 0
   const { reg, calls } = setup({
+    withSurface: true,
     routes: {
       '/status': () => {
         if (!calls.some(c => c.path === '/runtime/install')) return status({ runtime: { installed: false }, sidecar: { state: 'stopped' } })
@@ -91,176 +104,158 @@ await it('first open: onboarding explains download size, source and trust; insta
         return polls < 2 ? status({ runtime: { installed: false }, job: { running: true, lines: ['download node'] }, sidecar: { state: 'stopped' } }) : status()
       },
       'POST /runtime/install': { started: true },
-      'POST /space': { url: 'http://127.0.0.1:4100/?token=abc' },
+      'POST /workbench': { url: 'http://127.0.0.1:4100/?token=abc', base: 'http://127.0.0.1:4100' },
       'POST /appearance': { ok: true },
+      '/reviews': { reviews: [] },
     },
   })
   const el = document.createElement('div')
-  document.body.append(el)
-  const dispose = reg.views.diagnostics.mount(el)
-  const button = await until(() => [...el.querySelectorAll('button')].find(b => b.textContent === '下载并启动'))
-  const text = el.textContent
-  assert.match(text, /v24\.22\.0/)
-  assert.match(text, /0\.2\.1-rc\.2/)
-  assert.match(text, /1\.1 GB/)
-  assert.match(text, /不是沙箱/)
-  button.click()
-  const wv = await until(() => el.querySelector('webview'), 6000)
+  const dispose = reg.views.workbench.mount(el)
+  const btn = await until(() => [...el.querySelectorAll('button')].find(b => b.textContent === '下载并启动'))
+  assert.match(el.textContent, /\/home\/u\/\.dsh/)
+  assert.match(el.textContent, /1\.1 GB/)
+  btn.click()
+  const surface = await until(() => el.querySelector('.surface'), 6000)
+  assert.equal(surface.dataset.url, 'http://127.0.0.1:4100/?token=abc')
+  assert.equal(surface.dataset.partition, 'workbench')
+  await until(() => calls.some(c => c.path === '/appearance' && c.body?.theme === 'dark' && c.body?.locale === 'zh'))
+  dispose()
+  assert.equal(el.querySelector('.surface'), null)
+})
+
+await it('an old host without the controlled surface falls back to a webview in the old partition', async () => {
+  const { reg } = setup({ routes: { '/status': status(), 'POST /workbench': { url: 'http://127.0.0.1:4100/?token=abc' }, 'POST /appearance': { ok: true }, '/reviews': { reviews: [] } } })
+  const el = document.createElement('div')
+  const dispose = reg.views.workbench.mount(el)
+  const wv = await until(() => el.querySelector('webview'))
   assert.equal(wv.getAttribute('partition'), 'persist:dsh2forsion')
-  assert.equal(wv.getAttribute('src'), 'http://127.0.0.1:4100/?token=abc')
-  const appearance = await until(() => calls.find(c => c.path === '/appearance'))
-  assert.deepEqual(appearance.body, { theme: 'dark', locale: 'zh' })
   dispose()
-  assert.equal(el.children.length, 0)
 })
 
-await it('English onboarding and a host-provided web surface instead of a raw webview', async () => {
-  const { reg } = setup({ locale: 'en', withSurface: true, routes: { '/status': status(), 'POST /space': { url: 'http://127.0.0.1:1/?token=t' }, 'POST /appearance': { ok: true } } })
+await it('incompatible DSH: the workbench says to wait for a plugin update, chat falls back honestly, and going back is offered only when possible', async () => {
+  const inc = { dshVersion: '0.2.3', reason: 'install review not armed' }
+  for (const previous of [null, '0.2.2-rc.3']) {
+    const { reg, calls } = setup({ withSurface: true, routes: { '/status': status({ fusion: { ...status().fusion, incompatible: inc } }), 'POST /workbench': { incompatible: inc, previous }, 'POST /runtime/previous': status(), 'POST /appearance': { ok: true }, '/reviews': { reviews: [] } } })
+    const el = document.createElement('div')
+    const dispose = reg.views.workbench.mount(el)
+    await until(() => el.querySelector('[data-d2f="incompatible"]'))
+    assert.match(el.textContent, /等插件更新/)
+    assert.match(el.textContent, /依赖网页界面的 DSH 插件在这条路上不生效/)
+    const back = el.querySelector('[data-act="runtime-previous"]')
+    assert.equal(back.textContent, '先退回上一版 DSH')
+    assert.equal(back.disabled, !previous)
+    assert.equal(el.querySelector('.surface'), null)
+    if (previous) { back.click(); await until(() => calls.some(c => c.path === '/runtime/previous')) }
+    dispose()
+  }
+})
+
+await it('the workbench remounts when DSH restarts on a new address and reloads when the host reopened a session', async () => {
+  let base = 'http://127.0.0.1:4100', events = []
+  const { reg } = setup({ withSurface: true, routes: {
+    '/status': () => status({ sidecar: { state: 'running', base }, fusion: { ...status().fusion, events } }),
+    'POST /workbench': () => ({ url: `${base}/?token=t`, base }), 'POST /appearance': { ok: true }, '/reviews': { reviews: [] } } })
   const el = document.createElement('div')
-  document.body.append(el)
-  reg.views.diagnostics.mount(el)
-  const s = await until(() => el.querySelector('.surface'))
-  assert.equal(s.dataset.partition, 'persist:dsh2forsion')
-  assert.equal(el.querySelector('webview'), null)
+  const dispose = reg.views.workbench.mount(el)
+  await until(() => el.querySelector('.surface'))
+  events = [{ type: 'held', engineSessionId: 'e1' }, { type: 'reopened', engineSessionId: 'e1', sessionId: 's1' }]
+  await until(() => reg.surfaces[0].reloads === 1, 5000)
+  base = 'http://127.0.0.1:4200'
+  await until(() => el.querySelector('.surface')?.dataset.url === 'http://127.0.0.1:4200/?token=t', 5000)
+  dispose()
 })
 
-await it('after DSH restarts on a new port the Space re-embeds the new address; a stop shows a start button', async () => {
-  let sidecar = { state: 'running', base: 'http://127.0.0.1:4100' }
-  let n = 0
-  const { reg } = setup({
-    routes: {
-      '/status': () => status({ sidecar }),
-      'POST /space': () => ({ url: `${sidecar.base}/?token=t${++n}` }),
-      'POST /appearance': { ok: true },
-    },
-  })
+await it('installing from DSH\'s own plugin page: the workbench shows the check, then the report, and the answer goes back', async () => {
+  let reviews = [{ id: 'r1', spec: 'dsh-genui@0.3.3', state: 'checking' }]
+  const { reg, calls } = setup({ withSurface: true, routes: {
+    '/status': status(), 'POST /workbench': { url: 'http://127.0.0.1:4100/?token=t' }, 'POST /appearance': { ok: true },
+    '/reviews': () => ({ reviews }), 'POST /reviews/decide': { ok: true } } })
   const el = document.createElement('div')
-  document.body.append(el)
-  reg.views.diagnostics.mount(el)
-  await until(() => el.querySelector('webview')?.getAttribute('src') === 'http://127.0.0.1:4100/?token=t1')
-  sidecar = { state: 'starting', base: null }
-  await until(() => el.textContent.includes('DSH 正在重启'), 5000)
-  assert.equal(el.querySelector('webview'), null)
-  sidecar = { state: 'running', base: 'http://127.0.0.1:4200' }
-  await until(() => el.querySelector('webview')?.getAttribute('src') === 'http://127.0.0.1:4200/?token=t2', 5000)
-  sidecar = { state: 'stopped', base: null }
-  const start = await until(() => [...el.querySelectorAll('button')].find(b => b.textContent === '启动'), 5000)
-  sidecar = { state: 'running', base: 'http://127.0.0.1:4300' }
-  start.click()
-  await until(() => el.querySelector('webview')?.getAttribute('src') === 'http://127.0.0.1:4300/?token=t3', 5000)
+  const dispose = reg.views.workbench.mount(el)
+  const card = await until(() => { const r = el.querySelector('[data-d2f="review"]'); return r && !r.hidden && r })
+  assert.match(card.textContent, /正在体检 dsh-genui@0\.3\.3/)
+  reviews = [{ id: 'r1', spec: 'dsh-genui@0.3.3', state: 'ready', report: { verdict: 'ok', name: 'dsh-genui', version: '0.3.3', tools: ['render_ui'], promptChars: 812, inactive: [], hosts: ['registry.example.org'] } }]
+  await until(() => card.querySelector('[data-act="review-allow"]'), 4000)
+  assert.match(card.textContent, /要装 dsh-genui 0\.3\.3 吗/)
+  assert.match(card.textContent, /加了 1 个工具: render_ui/)
+  assert.match(card.textContent, /提示词多了 812 字/)
+  assert.match(card.textContent, /各部分都启动了/)
+  assert.match(card.textContent, /registry\.example\.org/)
+  card.querySelector('[data-act="review-allow"]').click()
+  await until(() => calls.some(c => c.path === '/reviews/decide' && c.body?.id === 'r1' && c.body?.allow === true))
+  assert.equal(card.hidden, true)
+  dispose()
 })
 
-await it('start failure shows the error with retry, restore-last-good and logs', async () => {
-  const { reg, calls } = setup({
-    routes: {
-      '/status': () => status({ sidecar: { state: 'failed', error: 'dsh: startup failed: 1 required plugin did not activate' } }),
-      'POST /space': () => { throw new Error('DSH did not start') },
-      'POST /plugins/restore-last-good': { status: 'restored' },
-    },
-  })
-  const el = document.createElement('div')
-  document.body.append(el)
-  reg.views.diagnostics.mount(el)
-  await until(() => el.textContent.includes('startup failed'))
-  const labels = [...el.querySelectorAll('button')].map(b => b.textContent)
-  assert.deepEqual(labels, ['重试', '恢复到上次能启动的状态', '查看日志与管理'])
-  ;[...el.querySelectorAll('button')][2].click()
-  assert.ok(calls.some(c => c.openSettings === 'fplugin:dsh2forsion'))
-  ;[...el.querySelectorAll('button')][1].click()
-  await until(() => calls.some(c => c.path === '/plugins/restore-last-good'))
+await it('harness rows: runtime with open / restart, the update channel select, and the plugin count with manage', async () => {
+  const { reg, calls } = setup({ routes: { '/status': status(), '/plugins': { plugins: [{ name: 'dsh-genui', version: '0.3.3' }] }, 'POST /channel/set': status(), 'POST /sidecar/restart': status() } })
+  const rows = await reg.harness.rows({ agentSlug: 'dsh-mate' })
+  assert.deepEqual(rows.map(r => r.id), ['runtime', 'channel', 'dsh-plugins'])
+  assert.deepEqual(rows[0].text, { zh: 'DSH 0.2.2-rc.3 · 在运行', en: 'DSH 0.2.2-rc.3 · running' })
+  assert.equal(rows[0].tone, 'ok')
+  assert.deepEqual(rows[0].actions.map(a => a.id), ['open-workbench', 'restart-dsh'])
+  rows[0].actions[0].run()
+  assert.deepEqual(calls.at(-1), { openView: 'workbench', location: 'main' })
+  assert.equal(rows[1].select.value, 'pinned')
+  rows[1].select.onChange('follow')
+  await until(() => calls.some(c => c.path === '/channel/set' && c.body?.updateChannel === 'follow'))
+  await until(() => reg.refreshed > 0)
+  assert.deepEqual(rows[2].text, { zh: '1 个', en: '1' })
 })
 
-await it('manage panel: lists tools and plugins; a partial trial asks before installing', async () => {
-  const installs = []
-  const { reg } = setup({
-    routes: {
-      '/status': status({ tools: ['fixture_echo'], promptSections: ['dsh2forsion-fixture'] }),
-      '/plugins': { plugins: [{ name: 'dsh-x', version: '1.0.0', title: { en: 'X', zh: '叉' }, enabled: true, known: { grade: 'load-ok' } }], known: {} },
-      '/logs': { lines: ['hello'], sidecar: ['dsh web: …'] },
-      'POST /plugins/install': body => {
-        installs.push(body)
-        return body.confirm ? { status: 'installed', name: 'dsh-y', verdict: 'partial', reasons: ['dsh-y (dsh-y): TypeError'] } : { status: 'needs-confirm', name: 'dsh-y', reasons: ['dsh-y (dsh-y): TypeError'] }
-      },
-    },
-  })
-  const el = document.createElement('div')
-  document.body.append(el)
-  reg.settings.manage.mount(el)
-  await until(() => el.textContent.includes('叉 1.0.0'))
-  assert.match(el.textContent, /fixture_echo/)
-  assert.match(el.textContent, /兼容矩阵：装载通过/)
-  const input = el.querySelector('input')
-  input.value = 'dsh-y@1.0.0'
-  ;[...el.querySelectorAll('button')].find(b => b.textContent === '安装').click()
-  const confirm = await until(() => [...el.querySelectorAll('button')].find(b => b.textContent === '仍然安装'))
-  assert.match(el.textContent, /TypeError/)
-  confirm.click()
-  await until(() => el.textContent.includes('已安装 dsh-y，但有部分没激活'))
-  assert.deepEqual(installs, [{ spec: 'dsh-y@1.0.0' }, { spec: 'dsh-y@1.0.0', confirm: true }])
+await it('harness rows when DSH does not match the plugin: danger text and a disabled go-back without an earlier version', async () => {
+  const inc = { dshVersion: '0.2.3', reason: 'x' }
+  const { reg } = setup({ routes: { '/status': status({ fusion: { ...status().fusion, incompatible: inc } }) } })
+  const [runtime] = await reg.harness.rows({ agentSlug: 'a' })
+  assert.equal(runtime.tone, 'danger')
+  assert.deepEqual(runtime.actions.map(a => [a.id, a.disabled]), [['runtime-previous', true]])
+  assert.match(runtime.hint.zh, /等插件更新/)
+  assert.ok(!/[㐀-鿿]/.test(runtime.hint.en))
 })
 
-await it('native view sends current session context and acknowledges actual navigation before reporting success', async () => {
-  let event = true, finishNavigation
-  const { ctx, reg, calls } = setup({ withSurface: true, routes: {
-    '/status': status({ sidecar: { state: 'running', base: 'http://127.0.0.1:4500' } }),
-    'POST /native/view': { url: 'http://127.0.0.1:4500/forsion-native/view/test/' },
-    '/native/events': () => ({ events: event ? [{ eventId: 'navigate', type: 'openSession', sessionId: 'native-task' }] : [] }),
-    'POST /native/ack': () => { event = false; return { ok: true } },
-    'POST /appearance': { ok: true },
-  } })
-  ctx.tangu.agentStatus = () => ({ sessionId: 'parent' })
-  ctx.tangu.models = () => [{ id: 'native/model', name: 'Native model' }]
-  ctx.tangu.openSession = async sessionId => { assert.equal(sessionId, 'native-task'); await new Promise(resolve => { finishNavigation = resolve }) }
-  const el = document.createElement('div'); document.body.append(el)
-  const dispose = reg.views.space.mount(el)
-  const surface = await until(() => el.querySelector('.surface'))
-  assert.match(surface.dataset.url, /forsion-native/)
-  assert.deepEqual(calls.find(c => c.path === '/native/view').body, { panelKey: 'task-board', sessionId: 'parent', models: [{ id: 'native/model', name: 'Native model' }] })
-  await until(() => finishNavigation)
-  assert.equal(calls.some(c => c.path === '/native/ack'), false)
-  finishNavigation()
-  await until(() => calls.some(c => c.path === '/native/ack'))
-  assert.equal(calls.some(c => c.path === '/space'), false)
-  dispose(); assert.equal(el.children.length, 0)
+await it('right-click "open in the workbench": holds the conversation first, then opens the tab; a conversation that never ran on DSH still opens it with a note', async () => {
+  let hold = { ok: true, engineSessionId: 'e1', state: 'open' }
+  const { reg, calls } = setup({ routes: { 'POST /hold': () => hold } })
+  reg.harness.sessionActions[0].run({ sessionId: 's1', agentSlug: 'dsh-mate' })
+  await until(() => calls.some(c => c.openView === 'workbench'))
+  const i = calls.findIndex(c => c.path === '/hold')
+  assert.deepEqual(calls[i].body, { sessionId: 's1' })
+  assert.ok(i < calls.findIndex(c => c.openView === 'workbench'))
+  assert.equal(reg.notes.length, 0)
+  hold = { ok: false, status: 404, code: 'no_engine_session', detail: 'x' }
+  reg.harness.sessionActions[0].run({ sessionId: 's2' })
+  await until(() => reg.notes.length === 1)
+  assert.match(reg.notes[0].message, /还没在 DSH 上跑过/)
 })
 
-await it('native view disposal rejects late surface mounting', async () => {
-  let finish
-  const { reg, ctx } = setup({ withSurface: true, routes: {
-    '/status': status(), 'POST /native/view': () => new Promise(resolve => { finish = resolve }),
-  } })
-  ctx.tangu.agentStatus = () => ({ sessionId: 'parent' })
-  const el = document.createElement('div'); document.body.append(el)
-  const dispose = reg.views.space.mount(el)
-  await until(() => finish); dispose()
-  finish({ url: 'http://127.0.0.1:4500/forsion-native/view/test/' })
-  await tick(10)
-  assert.equal(el.children.length, 0)
-})
-
-await it('native view keeps the last explicit selection across Space changes', async () => {
-  let onStatus
+await it('runtime page: versions, DSH folder, no install box (installs happen in the workbench), plugin list with uninstall; old hosts are told chats are not connected', async () => {
   const { reg, calls } = setup({ routes: {
-    '/status': status(), 'POST /native/view': { url: 'http://127.0.0.1:4500/forsion-native/view/test/' },
-    'POST /appearance': { ok: true },
-  }, tangu: { agentStatus: () => ({ sessionId: null }), subscribeAgentStatus: cb => { onStatus = cb; return () => {} } } })
-  onStatus({ sessionId: 'project-a' }); onStatus({ sessionId: 'project-b' }); onStatus({ sessionId: null })
-  const el = document.createElement('div'); document.body.append(el)
-  const dispose = reg.views.space.mount(el)
-  await until(() => el.querySelector('webview'))
-  assert.equal(calls.find(c => c.path === '/native/view').body.sessionId, 'project-b')
+    '/status': status({ runtime: { installed: true, installedVersions: ['0.2.2-rc.3'], previous: null }, fusion: { ...status().fusion, resident: false } }),
+    '/plugins': { plugins: [{ name: 'dsh-genui', version: '0.3.3', enabled: true }] }, '/logs': { lines: ['a'], sidecar: ['dsh web: http://127.0.0.1:1/?token=<redacted>'] },
+    'POST /plugins/remove': { status: 'removed', name: 'dsh-genui' } } })
+  const el = document.createElement('div')
+  const dispose = reg.settings.manage.mount(el)
+  await until(() => el.textContent.includes('dsh-genui'))
+  assert.match(el.textContent, /\/home\/u\/\.dsh/)
+  assert.match(el.textContent, /这个插件版本验过 0\.2\.2-rc\.3/)
+  assert.match(el.textContent, /还不能让 DSH 的对话连这个常驻的 DSH/)
+  assert.equal(el.querySelector('input'), null)
+  const back = [...el.querySelectorAll('button')].find(b => b.textContent === '先退回上一版 DSH')
+  assert.equal(back.disabled, true)
+  ;[...el.querySelectorAll('button')].find(b => b.textContent === '卸载').click()
+  await until(() => calls.some(c => c.path === '/plugins/remove' && c.body?.name === 'dsh-genui'))
   dispose()
 })
 
-await it('native view without an active session never resumes an old project', async () => {
-  const { reg, calls } = setup({ routes: { '/status': status() } })
-  const el = document.createElement('div'); document.body.append(el)
-  const dispose = reg.views.space.mount(el)
-  await until(() => el.textContent.includes('请先在 Tangu 侧栏选择项目会话'))
-  assert.equal(calls.some(c => c.path === '/native/view'), false)
-  assert.equal(el.querySelector('webview'), null)
+await it('English UI: workbench card and harness labels switch with the host language', async () => {
+  const { reg } = setup({ locale: 'en', routes: { '/status': status({ runtime: { installed: false }, sidecar: { state: 'stopped' } }), '/plugins': { plugins: [] } } })
+  const el = document.createElement('div')
+  const dispose = reg.views.workbench.mount(el)
+  await until(() => el.textContent.includes('Download and start'))
+  assert.ok(!/[㐀-鿿]/.test(el.textContent.replace(/<[^>]+>/g, '')))
+  const rows = await reg.harness.rows({ agentSlug: 'a' })
+  assert.equal(rows[0].text.en, 'Not downloaded yet')
   dispose()
 })
 
 console.log(`check-renderer: ${n} passed`)
-process.exit(0)

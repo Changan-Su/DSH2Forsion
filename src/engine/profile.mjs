@@ -1,7 +1,7 @@
 // profile 层：建 `forsion` profile、装 / 升级桥、跑 `dsh plugin …`（DSH 自己转给 pnpm）。
 import { existsSync, readFileSync } from 'node:fs'
-import { cp, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import { BRIDGE_PACKAGE, PROFILE } from './constants.mjs'
 import { childEnv } from './env.mjs'
 import { run } from './proc.mjs'
@@ -105,6 +105,26 @@ export async function copyProfileFiles(fromDir, toDir) {
     if (existsSync(src)) await cp(src, join(toDir, f))
     else await rm(join(toDir, f), { force: true })
   }
+}
+
+/**
+ * pnpm 的锁把 file: 依赖（桥）记成相对组合目录的路径。组合拷到别处（体检用的临时目录，和用户 DSH 目录不在同一层）时
+ * 把这些相对路径换算成相对新目录的，不然 pnpm 找不到桥。纯函数，单测覆盖。
+ */
+export function relocateLock(text, fromDir, toDir) {
+  return String(text).replace(/(file:|directory: )(\.\.?\/[^\s(),}'"]*)/g, (_, prefix, rel) => {
+    const abs = resolve(fromDir, rel)
+    let next = relative(toDir, abs).split('\\').join('/')
+    if (!next.startsWith('.') && !isAbsolute(next)) next = `./${next}`
+    return `${prefix}${next}`
+  })
+}
+
+/** 把组合的声明文件拷到另一个 DSH_HOME 下（体检）：锁里的相对路径一并换算。 */
+export async function copyProfileTo(fromHome, toHome) {
+  await copyProfileFiles(profileDir(fromHome), profileDir(toHome))
+  const lock = join(profileDir(toHome), 'pnpm-lock.yaml')
+  if (existsSync(lock)) await writeFile(lock, relocateLock(await readFile(lock, 'utf8'), profileDir(fromHome), profileDir(toHome)))
 }
 
 export async function newestBackup(backupsDir) {

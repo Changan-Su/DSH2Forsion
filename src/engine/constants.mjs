@@ -1,5 +1,5 @@
 // 每个 DSH2Forsion 版本钉死的上游版本。升级流程见 Forsion-Root 方案 §7：跑兼容矩阵 → 改映射 → 发版。
-export const DSH_VERSION = '0.2.1-rc.2'
+export const DSH_VERSION = '0.2.2-rc.3'
 export const NODE_VERSION = 'v24.22.0'
 export const PNPM_VERSION = '11.28.6'
 
@@ -17,9 +17,19 @@ export const NODE_SHA256 = {
 // DSH 自己的原生依赖：装运行时时只给这三个跑构建脚本，其余一律 --ignore-scripts。
 export const TRUSTED_NATIVE_PACKAGES = ['koffi', 'node-pty', '@deepseek-ai/dsh-subprocess-local']
 
+// 融合组合（第 1 档）：放在用户自己的 DSH 目录（$DSH_HOME，缺省 ~/.dsh）里、名叫 forsion 的一份组合。
+// 同一个进程里既开网页界面（工作台），又开对话入口（ACP，Forsion 的对话连它）。
 export const PROFILE = 'forsion'
 export const BRIDGE_PACKAGE = 'dsh2forsion-bridge'
 export const PLUGIN_ID = 'dsh2forsion'
+export const ENGINE_ID = 'dsh'
+// 组合目录里这个文件 = 这份组合是本插件建的；没有它而目录已在 → 是用户自己的同名组合，不碰。
+export const FUSION_MARKER = '.dsh2forsion-fusion.json'
+export const FUSION_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-acp-app']
+// 网页界面那份接线把这些关了、改由「预设」按会话挂；对话入口建的会话不挂预设，所以在全局重新打开（方案目录 resident 实测）。
+export const FUSION_REENABLE = ['agent-instructions', 'tool-web', 'tool-todo', 'tool-workflow', 'workflow-ptc', 'command-goal', 'plan-mode', 'command-compact',
+  'tool-goal', 'compaction-basic', 'tool-result-pruner', 'skill-filesystem', 'tool-skill', 'tool-subagent-control', 'tool-subagent', 'tool-subagent-fork',
+  'tool-bash', 'tool-jobs', 'tool-fs', 'tool-fs-search']
 
 export const NODE_MIRRORS = {
   official: 'https://nodejs.org/dist',

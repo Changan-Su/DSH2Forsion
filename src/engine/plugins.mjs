@@ -1,11 +1,12 @@
-// DSH 插件管理：装前试启动、核心包夹带扫描、版本豁免、改前快照、一键回滚。
-// M0 随机样本里 30 个有 2 个会拖垮整个 sidecar 或界面，DSH 自己的插件管理器只在 pnpm 失败时回滚，
-// 所以装之前先在临时 DSH_HOME 里整套装一遍、起一次，过了才动用户的 profile。
+// DSH 插件管理：装前体检、核心包夹带扫描、改前快照、一键回滚。
+// 第 1 档起装插件的入口是工作台里 DSH 自己的插件页：桥把那次安装停住，这里在临时 DSH_HOME 里整套装一遍、起两次
+// （装前 / 装后），报告给用户，用户点头才放行（M0 随机样本里 30 个有 2 个会拖垮整个 sidecar 或界面）。
+// 只写自己那份组合；用户 DSH 目录顶层的 cordis.patch.yml 只读。
 import { existsSync } from 'node:fs'
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { DSH_VERSION, PROFILE } from './constants.mjs'
-import { LAST_GOOD, copyProfileFiles, dsh, newestBackup, profileDir, shadowedCorePackages, userPlugins } from './profile.mjs'
+import { PROFILE } from './constants.mjs'
+import { LAST_GOOD, copyProfileFiles, copyProfileTo, dsh, newestBackup, profileDir, shadowedCorePackages, userPlugins } from './profile.mjs'
 import { tail } from './proc.mjs'
 import { Sidecar } from './sidecar.mjs'
 
@@ -72,7 +73,7 @@ function judgeStart({ ready, lines, shadowed, pluginName }) {
 export class PluginManager {
   /**
    * @param {ReturnType<import('./layout.mjs').layout>} paths
-   * @param {{ main: Sidecar, bridgeDir: string, known: () => any, log: (l: string) => void, restart: () => Promise<void> }} deps
+   * @param {{ main: Sidecar, bridgeDir: string, netHook: string, known: () => any, log: (l: string) => void, restart: () => Promise<void> }} deps
    */
   constructor(paths, deps) {
     this.paths = paths
@@ -120,67 +121,88 @@ export class PluginManager {
     })
   }
 
-  install(spec, opts = {}) {
-    return this.exclusive(`install ${spec}`, () => this.installNow(spec, opts))
+  /**
+   * 装前体检（第 1 档）：工作台里 DSH 自己的插件页要装 spec 时，桥把这次安装停住，引擎半身调这里。
+   * 在临时 DSH_HOME 里拿当前组合起两次 —— 装之前一次、装上之后一次 —— 比出这个插件加了哪些工具、提示词多了多少字、
+   * 有没有没启动的部分、启动时连了哪些外部主机（node --import 的钩子量出来的，不是读代码猜的）。不动真实的组合。
+   */
+  review(spec) {
+    return this.exclusive(`review ${spec}`, () => this.reviewNow(spec))
   }
 
-  async installNow(spec, { acceptRisk = false, confirm = false, force = false } = {}) {
-    const name = await specName(spec)
+  async reviewNow(spec) {
+    const t0 = Date.now()
     const log = this.deps.log
+    let name = null
+    try { name = await specName(spec) } catch { name = null }
     const known = this.deps.known()
-    const verified = Boolean(known.exemptions?.includes(spec) || known.exemptions?.includes(`${name}@${spec.slice(name.length + 1)}`))
     const trial = this.paths.trialHome
     await rm(trial, { recursive: true, force: true })
-    await copyProfileFiles(profileDir(this.paths.home), profileDir(trial))
+    await copyProfileTo(this.paths.home, trial)
+    // 用户 DSH 目录顶层的 cordis.patch.yml 对所有组合生效：试启动也带上它（只读，不往回写）
     if (existsSync(join(this.paths.home, 'cordis.patch.yml'))) await cp(join(this.paths.home, 'cordis.patch.yml'), join(trial, 'cordis.patch.yml'))
-    log(`trial: add ${spec}`)
-    let exempted = false
-    let add = await dsh(this.paths, trial, ['plugin', '--profile', PROFILE, 'add', '--ignore-scripts', spec], { log })
+    const sync = await dsh(this.paths, trial, ['plugin', '--profile', PROFILE, 'install', '--ignore-scripts'], { log })
+    if (sync.code !== 0) return { verdict: 'failed', spec, name, reasons: [`could not prepare the trial copy: ${tail(sync.out, 4)}`], ms: Date.now() - t0 }
+    const before = await this.measure(trial, 'before')
+    if (this.disposed) return { verdict: 'failed', spec, name, reasons: ['DSH2Forsion is being turned off'] }
+    log(`review: add ${spec}`)
+    const add = await dsh(this.paths, trial, ['plugin', '--profile', PROFILE, 'add', '--ignore-scripts', spec], { log })
     if (add.code !== 0 && VERSION_REFUSED.test(add.out)) {
-      if (!acceptRisk && !verified) {
-        return { status: 'version-refused', name, spec, verified, message: tail(add.out, 6) }
-      }
-      const grant = await dsh(this.paths, trial, ['plugin', '--profile', PROFILE, 'allow-version', spec, '--dsh-version', DSH_VERSION, '--accept-risk'], { log })
-      if (grant.code !== 0) return { status: 'failed', name, spec, message: tail(grant.out, 6) }
-      exempted = true
-      add = await dsh(this.paths, trial, ['plugin', '--profile', PROFILE, 'add', '--ignore-scripts', spec], { log })
+      await rm(trial, { recursive: true, force: true })
+      return { verdict: 'version-refused', spec, name, reasons: [tail(add.out, 4)], ms: Date.now() - t0 }
     }
-    if (add.code !== 0) return { status: 'failed', name, spec, message: tail(add.out, 8) }
-
+    if (add.code !== 0) {
+      await rm(trial, { recursive: true, force: true })
+      return { verdict: 'failed', spec, name, reasons: [tail(add.out, 6)], ms: Date.now() - t0 }
+    }
+    const added = (await userPlugins(trial)).filter(p => !before.deps.includes(p.name))
+    name ??= added[0]?.name ?? null
+    const version = name ? (await userPlugins(trial)).find(p => p.name === name)?.version ?? null : null
     const shadowed = await shadowedCorePackages(this.paths, trial)
-    const version = (await userPlugins(trial)).find(p => p.name === name)?.version
-    const graded = version ? known.plugins?.[`${name}@${version}`] ?? null : null
-    if (this.disposed) return { status: 'failed', name, spec, message: 'DSH2Forsion is being turned off' }
-    const probe = new Sidecar(this.paths, { home: trial, label: 'trial' })
+    const after = await this.measure(trial, 'after')
+    await rm(trial, { recursive: true, force: true })
+    if (this.disposed) return { verdict: 'failed', spec, name, reasons: ['DSH2Forsion is being turned off'] }
+    // 兼容矩阵的评级只对它跑过的那一版 DSH 算数（matrixDsh）；换了版本就只看这次实测
+    const graded = name && version && (known.matrixDsh ?? known.dsh) === this.paths.dshVersion ? known.plugins?.[`${name}@${version}`] ?? null : null
+    const judged = judgeTrial({ ready: after.ready, lines: after.lines, shadowed, pluginName: name ?? spec, graded })
+    const beforeChars = new Map(before.sections.map(x => [x.name, x.chars]))
+    const report = {
+      verdict: judged.verdict, spec, name, version, reasons: judged.reasons,
+      tools: after.tools.filter(t => !before.tools.includes(t)),
+      toolsGone: after.ready ? before.tools.filter(t => !after.tools.includes(t)) : [],
+      promptChars: after.sections.reduce((n, x) => n + x.chars, 0) - before.sections.reduce((n, x) => n + x.chars, 0),
+      sections: after.sections.filter(x => x.chars !== beforeChars.get(x.name)).map(x => ({ name: x.name, chars: x.chars - (beforeChars.get(x.name) ?? 0) })),
+      inactive: after.lines.filter(l => INACTIVE.test(l) || BROKEN.test(l)).filter(l => !before.lines.includes(l)).slice(0, 8),
+      hosts: after.hosts.filter(h => !before.hosts.includes(h)),
+      measured: { before: before.ready, after: after.ready },
+      ms: Date.now() - t0,
+    }
+    log(`review: ${report.verdict}, +${report.tools.length} tools, ${report.promptChars >= 0 ? '+' : ''}${report.promptChars} prompt chars, ${report.hosts.length} hosts`)
+    return report
+  }
+
+  /** 在体检目录里起一次组合，量工具、提示词分节和外连主机；起不来也返回（ready=false）。 */
+  async measure(trial, label) {
+    const netFile = join(trial, `net-${label}.txt`)
+    await writeFile(netFile, '')
+    const probe = new Sidecar(this.paths, { home: trial, label: `trial-${label}`, cwd: trial, preload: this.deps.netHook, extraEnv: { DSH2FORSION_TRIAL_NET: netFile } })
     this.probe = probe
-    let ready = false
-    try { await probe.start(); ready = true } catch { ready = false }
-    // 等日志里的激活告警落地
-    if (ready) await new Promise(r => setTimeout(r, 1500))
+    let ready = false, tools = [], sections = []
+    try {
+      await probe.start(); ready = true
+      // 等日志里的激活告警、插件启动时的外连落地
+      await new Promise(r => setTimeout(r, 2500))
+      const check = await probe.bridge('/fusion/check')
+      tools = check.tools ?? []
+      sections = check.sections ?? []
+    } catch { /* 起不来 / 桥不在：ready 或工具表为空，交给判定 */ }
     const lines = [...probe.lines]
     await probe.stop()
     this.probe = null
-    if (this.disposed) return { status: 'failed', name, spec, message: 'DSH2Forsion is being turned off' }
-    const judged = judgeTrial({ ready, lines, shadowed, pluginName: name, graded })
-    log(`trial: ${judged.verdict}`)
-    if (judged.verdict === 'blocked' && !force) return { status: 'blocked', name, spec, reasons: judged.reasons }
-    if (judged.verdict === 'partial' && !confirm && !force) return { status: 'needs-confirm', name, spec, reasons: judged.reasons }
-
-    const backup = await this.snapshot(`before install ${spec}`)
-    try {
-      if (exempted) {
-        const g = await dsh(this.paths, this.paths.home, ['plugin', '--profile', PROFILE, 'allow-version', spec, '--dsh-version', DSH_VERSION, '--accept-risk'], { log })
-        if (g.code !== 0) throw new Error(tail(g.out, 6))
-      }
-      const real = await dsh(this.paths, this.paths.home, ['plugin', '--profile', PROFILE, 'add', '--ignore-scripts', spec], { log })
-      if (real.code !== 0) throw new Error(tail(real.out, 8))
-    } catch (error) {
-      await this.restore(backup)
-      return { status: 'failed', name, spec, message: String(error.message ?? error) }
-    }
-    await rm(trial, { recursive: true, force: true })
-    await this.deps.restart()
-    return { status: 'installed', name, spec, exempted, verdict: judged.verdict, reasons: judged.reasons }
+    let hosts = []
+    try { hosts = (await readFile(netFile, 'utf8')).split('\n').map(l => l.trim()).filter(Boolean) } catch { hosts = [] }
+    const deps = (await userPlugins(trial)).map(p => p.name)
+    return { ready, tools, sections, lines, hosts: [...new Set(hosts)], deps }
   }
 
   remove(name) {
@@ -217,7 +239,6 @@ export class PluginManager {
   async saveLastGood() {
     const dir = join(this.paths.backups, LAST_GOOD)
     await copyProfileFiles(profileDir(this.paths.home), join(dir, 'profile'))
-    await cp(join(this.paths.home, 'cordis.patch.yml'), join(dir, 'home.cordis.patch.yml')).catch(() => {})
     await writeFile(join(dir, 'label.txt'), `last good start ${new Date().toISOString()}\n`)
   }
 
@@ -237,14 +258,13 @@ export class PluginManager {
     const dir = join(this.paths.backups, `${prefix}${stamp}`)
     await mkdir(dir, { recursive: true })
     await copyProfileFiles(profileDir(this.paths.home), join(dir, 'profile'))
-    await cp(join(this.paths.home, 'cordis.patch.yml'), join(dir, 'home.cordis.patch.yml')).catch(() => {})
     await writeFile(join(dir, 'label.txt'), `${label}\n`)
     return dir
   }
 
   async restore(dir) {
+    // 只还原自己那份组合；DSH 目录顶层的 cordis.patch.yml 是用户所有组合共用的，从不往回写
     await copyProfileFiles(join(dir, 'profile'), profileDir(this.paths.home))
-    if (existsSync(join(dir, 'home.cordis.patch.yml'))) await cp(join(dir, 'home.cordis.patch.yml'), join(this.paths.home, 'cordis.patch.yml'))
     // 按恢复后的清单和锁文件重装 node_modules
     const r = await dsh(this.paths, this.paths.home, ['plugin', '--profile', PROFILE, 'install', '--ignore-scripts'], { log: this.deps.log })
     if (r.code !== 0) this.deps.log(`restore install failed: ${tail(r.out, 6)}`)

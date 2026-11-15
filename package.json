@@ -1,15 +1,15 @@
 {
   "name": "dsh2forsion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Adapt DeepSeek Harness agent capabilities to Tangu and WebUI contributions to Forsion",
   "type": "module",
   "license": "MIT",
   "scripts": {
     "build": "node build.mjs",
-    "check": "node tests/check-unit.mjs && node tests/check-bridge.mjs && node tests/check-skills.mjs && node tests/check-session-scope.mjs && node tests/check-models.mjs && node tests/check-native-execution.mjs && node tests/check-native-client.mjs && node tests/check-renderer.mjs && node tests/check-build.mjs && npm run check:runtime-lock",
+    "check": "node tests/check-unit.mjs && node tests/check-fusion-unit.mjs && node tests/check-bridge.mjs && node tests/check-skills.mjs && node tests/check-session-scope.mjs && node tests/check-models.mjs && node tests/check-native-execution.mjs && node tests/check-native-client.mjs && node tests/check-renderer.mjs && node tests/check-build.mjs && npm run check:runtime-lock",
     "check:runtime-lock": "node tests/check-runtime-lock.mjs",
-    "test:sidecar": "node tests/check-sidecar.mjs",
+    "test:sidecar": "node tests/check-fusion.mjs",
     "test:live": "node tests/check-live.mjs",
     "test:gui": "node tests/gui/dsh2forsion.e2e.cjs",
     "test:native-gui": "node tests/gui/native.e2e.cjs",
@@ -19,7 +19,8 @@
     "test:billion-live": "node tests/check-billion-live.mjs",
     "report:html": "node tests/report-html.mjs",
     "gen:baseline": "node tests/gen-baseline.mjs",
-    "gen:known": "node tests/gen-known.mjs"
+    "gen:known": "node tests/gen-known.mjs",
+    "test:fusion": "node tests/check-fusion.mjs"
   },
   "devDependencies": {
     "esbuild": "0.25.10",

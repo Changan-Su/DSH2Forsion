@@ -4,7 +4,6 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { managedSkills } from './skills.js'
-import { installNativeAdapters } from './native-adapters.js'
 import { mcpSnapshot } from './mcp.js'
 import { SessionScopePool } from './session-scope.js'
 import { listModels, resolveModel, readModelBody, streamModelResponse } from './models.js'
@@ -13,6 +12,7 @@ export const name = 'dsh2forsion-bridge'
 export const inject = ['tools', 'webServer', 'systemPrompt', 'sessionProjections', 'skills', 'llm']
 
 const PREFIX = '/forsion-bridge'
+const BRIDGE_VERSION = '0.2.0'
 const MAX_BODY = 1 << 20
 const APPROVAL_TTL_MS = 60_000
 
@@ -37,24 +37,80 @@ export function apply(ctx) {
   watchParent(ctx, log)
   const agents = new AgentPool(ctx, log)
   const scopes = new SessionScopePool(ctx)
-  const native = { endpoint: null }
-  native.adapters = installNativeAdapters(ctx, { log: line => log.info(line), invoke: async (op, payload) => {
-    if (!native.endpoint) throw new Error('Open the native view from a Tangu project session first')
-    const response = await fetch(native.endpoint.url, { method: 'POST', signal: AbortSignal.timeout(30_000),
-      headers: { 'content-type': 'application/json', 'x-dsh2forsion-native': native.endpoint.secret },
-      body: JSON.stringify({ adapter: 'task-board', version: 1, op, payload }) })
-    const result = await response.json()
-    if (!response.ok) throw new Error(result.error || 'Native execution failed')
-    return result
-  } })
+  // 工作台里 DSH 自己的插件页装插件时，先停在这里等 Forsion 体检、问过用户（融合插件第 1 档）。
+  const gate = installGate(ctx, log)
   const dispose = ctx.webServer.register({
     kind: 'prefix',
     path: PREFIX,
-    handler: (req, res) => handle(ctx, { secret, approved, agents, scopes, native }, req, res).catch(error => {
+    handler: (req, res) => handle(ctx, { secret, approved, agents, scopes, gate }, req, res).catch(error => {
       if (!res.headersSent && !res.destroyed) send(res, 500, { error: String(error?.message ?? error) })
     }),
   })
-  ctx.effect(() => () => { native.endpoint = null; native.adapters.dispose(); dispose(); void agents.dispose(); void scopes.dispose().catch(error => log.warn(error)) })
+  ctx.effect(() => () => { gate.dispose(); dispose(); void agents.dispose(); void scopes.dispose().catch(error => log.warn(error)) })
+}
+
+// 装插件闸：包住 pluginManager.installBundle。只拦界面发起的安装（带 requestId、不是升级 —— 升级失败时插件管理器自己
+// 会用 installBundle 装回旧版，那一步不能拦）。Forsion 那半轮询待审的安装、体检、问用户，再回话放行或拒绝；
+// 没人回话就按拒绝处理（INSTALL_TTL_MS）。拦不上（插件管理器不在、方法名变了）时 armed=false，引擎半身据此报「对不上」。
+const INSTALL_TTL_MS = 15 * 60_000
+
+export function installGate(ctx, log) {
+  const pending = new Map()
+  const gate = { armed: false, reason: 'waiting for the plugin manager', pending,
+    list: () => [...pending.values()].map(({ id, spec, at }) => ({ id, spec, at })),
+    decide(id, allow, message) {
+      const item = pending.get(id)
+      if (!item) return false
+      pending.delete(id)
+      clearTimeout(item.timer)
+      if (allow) item.resolve()
+      else item.reject(new Error(message || 'Forsion did not approve installing this plugin'))
+      return true
+    },
+    dispose() { for (const id of [...pending.keys()]) gate.decide(id, false, 'DSH2Forsion bridge stopped') },
+  }
+  const arm = (pm) => {
+    if (!pm || typeof pm.installBundle !== 'function') { gate.reason = `plugin manager has no installBundle (${typeof pm})`; log.warn(gate.reason); return () => {} }
+    // cordis 给的是服务的代理，往它身上赋值不生效：改定义 installBundle 的那一层原型（远程调用按名字取方法，会取到这里）
+    let owner = Object.getPrototypeOf(pm)
+    while (owner && !Object.prototype.hasOwnProperty.call(owner, 'installBundle')) owner = Object.getPrototypeOf(owner)
+    if (!owner) { gate.reason = 'installBundle is not defined on the plugin manager class'; log.warn(gate.reason); return () => {} }
+    const original = owner.installBundle
+    const wrapped = function installBundle(spec, options) {
+      if (options?.requestId === undefined || options?.expected !== undefined) return original.call(this, spec, options)
+      const id = randomUUID()
+      const held = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => gate.decide(id, false, 'Nobody confirmed this install in Forsion'), INSTALL_TTL_MS)
+        timer.unref?.()
+        pending.set(id, { id, spec: String(spec), at: Date.now(), resolve, reject, timer })
+      })
+      log.info('install of %s held for review in Forsion', String(spec))
+      return held.then(() => original.call(this, spec, options))
+    }
+    try { owner.installBundle = wrapped } catch (error) { gate.reason = `installBundle could not be replaced: ${error?.message ?? error}`; log.warn(gate.reason); return () => {} }
+    gate.armed = pm.installBundle === wrapped || owner.installBundle === wrapped
+    gate.reason = gate.armed ? 'armed' : 'installBundle could not be replaced'
+    return () => { if (owner.installBundle === wrapped) owner.installBundle = original; gate.armed = false; gate.reason = 'disarmed' }
+  }
+  if (typeof ctx.inject !== 'function') gate.reason = 'this DSH has no ctx.inject'
+  else {
+    ctx.inject(['pluginManager'], sub => {
+      const undo = arm(sub.get?.('pluginManager') ?? sub.pluginManager)
+      sub.effect(() => undo)
+    })
+  }
+  return gate
+}
+
+// DSH 0.2.2 起 ctx.tools.execute 收一批调用（ToolBatchInput），0.2.1 是一次一个；按有没有 selectExecutor 判版本。
+export async function executeTool(tools, { callId, name, args, signal, agent }) {
+  if (typeof tools.selectExecutor !== 'function') {
+    return tools.execute({ callId, name, arguments: args ?? {}, signal, ...(agent ? { agent } : {}) })
+  }
+  const out = await tools.execute({ calls: [{ type: 'tool-call', id: callId, name, arguments: JSON.stringify(args ?? {}) }], signal, ...(agent ? { agent } : {}) })
+  const hit = out?.results?.find(r => r.callId === callId) ?? out?.results?.[0]
+  if (!hit) throw new Error('DSH returned no result for the tool call')
+  return hit.result
 }
 
 // Forsion 崩溃或被强杀时引擎来不及停 sidecar，DSH 会变成孤儿常驻（约 400 MB，真桌面台架实测）。
@@ -114,16 +170,17 @@ async function handle(ctx, state, req, res) {
     res.once('close', () => { if (!res.writableEnded) controller.abort() })
     return send(res, 200, { skills: await managedSkills(ctx, process.env.DSH_HOME, controller.signal, { cwd: requestCwd(req) }) })
   }
-  if (req.method === 'POST' && path === `${PREFIX}/native/configure`) {
-    const body = JSON.parse(await readBody(req))
-    const url = new URL(body.url)
-    if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.pathname !== '/invoke' || url.username || url.password || url.search || url.hash || !/^[a-f0-9]{64}$/.test(body.secret)) throw new Error('Invalid native callback')
-    state.native.endpoint = { url: url.href, secret: body.secret }
-    return send(res, 200, { ok: true })
+  // 融合自检 + 装前体检用：桥在、装插件闸拦上了没有、全局工具和提示词分节（只给名字和字数）
+  if (req.method === 'GET' && path === `${PREFIX}/fusion/check`) {
+    const sections = promptSections(ctx).map(s => ({ name: s.name, chars: s.text.length }))
+    let tools = []
+    try { tools = ctx.tools.schemas().map(t => t.name) } catch { tools = [] }
+    return send(res, 200, { ok: true, bridge: BRIDGE_VERSION, gate: state.gate.armed, gateReason: state.gate.reason, tools, sections })
   }
-  if (req.method === 'POST' && path === `${PREFIX}/native/view`) {
-    if (!state.native.endpoint) throw new Error('Native execution is unavailable on this host')
-    return send(res, 200, state.native.adapters.openView(JSON.parse(await readBody(req))))
+  if (req.method === 'GET' && path === `${PREFIX}/fusion/installs`) return send(res, 200, { armed: state.gate.armed, pending: state.gate.list() })
+  if (req.method === 'POST' && path === `${PREFIX}/fusion/installs/decide`) {
+    const body = JSON.parse(await readBody(req))
+    return send(res, 200, { ok: state.gate.decide(String(body.id ?? ''), body.allow === true, typeof body.message === 'string' ? body.message.slice(0, 400) : undefined) })
   }
   if (req.method === 'POST' && path === `${PREFIX}/tools/execute`) {
     const body = JSON.parse(await readBody(req))
@@ -138,10 +195,7 @@ async function handle(ctx, state, req, res) {
       const executed = await execute(async (agent, signal) => {
         if (body.approved === true) state.approved.set(callId, Date.now() + APPROVAL_TTL_MS)
         try {
-          const result = await ctx.tools.execute({
-            callId, name: String(body.name), arguments: body.arguments ?? {}, signal,
-            ...(agent ? { agent } : {}),
-          })
+          const result = await executeTool(ctx.tools, { callId, name: String(body.name), args: body.arguments ?? {}, signal, agent })
           return { agent: Boolean(agent), result }
         } finally { state.approved.delete(callId) }
       })

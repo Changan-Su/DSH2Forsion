@@ -1,7 +1,11 @@
 {
- "dsh": "0.2.1-rc.2",
- "generatedAt": "2026-10-18",
+ "dsh": "0.2.2-rc.3",
+ "generatedAt": "2026-11-13",
  "tools": [
+  "team_task_create",
+  "team_task_get",
+  "team_task_list",
+  "team_task_update",
   "working_directory"
  ],
  "sections": [
@@ -11,6 +15,7 @@
   "harness:identity",
   "harness:source",
   "mcp-resource-servers",
+  "team:policy",
   "ui:deliverable-file-references"
  ]
 }

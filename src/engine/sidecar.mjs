@@ -1,8 +1,12 @@
-// sidecar 进程：官方 Node 跑钉死的 DSH 运行时，只听 127.0.0.1 随机端口。
-// 每次启动生成新密钥交给桥；就绪的标志是 DSH 打印的 `dsh web: http://127.0.0.1:<port>/?token=…`。
+// sidecar 进程：官方 Node 跑钉死的 DSH 运行时，起的是融合组合（网页界面 + 对话入口同一个进程）。
+// - 网页界面只听 127.0.0.1 随机端口（写在组合配置里）；就绪的标志是 DSH 打印的 `dsh web: http://127.0.0.1:<port>/?token=…`。
+// - 对话入口走 stdio：stdout 里的 JSON 行是 ACP 消息，交给 Forsion 的引擎（connection()）；不是 JSON 的行（含就绪行）进日志。
+// - 启动令牌只在内存里：进日志的每一行都先把 token 抹掉，不落盘、不打印。
+// - stdin 一直开着：ACP 入口读到 EOF 就会退出。
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { homedir } from 'node:os'
+import { PassThrough } from 'node:stream'
+import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
 import { PROFILE, READY_TIMEOUT_MS } from './constants.mjs'
 import { childEnv } from './env.mjs'
@@ -11,13 +15,24 @@ const READY = /dsh web: (http:\/\/127\.0\.0\.1:\d+)\/\?token=(\S+)/
 const LOG_LIMIT = 400
 const BRIDGE_TIMEOUT_MS = 15_000
 
+/** 进日志之前抹掉启动令牌（就绪行、DSH 自己可能打的登录地址）。 */
+export function redact(line) {
+  return String(line).replace(/([?&]token=)[^\s&"'<>]+/gi, '$1<redacted>')
+}
+
 export class Sidecar {
-  /** @param {ReturnType<import('./layout.mjs').layout>} paths */
-  constructor(paths, { home = paths.home, onState = () => {}, label = 'main' } = {}) {
+  /**
+   * @param {ReturnType<import('./layout.mjs').layout>} paths
+   * @param {{ home?: string, onState?: (s: any) => void, label?: string, cwd?: string, preload?: string, extraEnv?: Record<string,string> }} [opts]
+   */
+  constructor(paths, { home = paths.home, onState = () => {}, label = 'main', cwd, preload, extraEnv } = {}) {
     this.paths = paths
     this.home = home
     this.onState = onState
     this.label = label
+    this.cwd = cwd ?? home
+    this.preload = preload
+    this.extraEnv = extraEnv ?? {}
     this.state = 'stopped' // stopped | starting | running | failed
     this.child = null
     this.base = null
@@ -28,20 +43,22 @@ export class Sidecar {
     this.startedAt = null
     this.readyMs = null
     this.starting = null
+    this.conn = null
+    this.spawns = 0
   }
 
   snapshot() {
-    return { state: this.state, pid: this.child?.pid ?? null, base: this.base, startedAt: this.startedAt, readyMs: this.readyMs, error: this.error }
+    return { state: this.state, pid: this.child?.pid ?? null, base: this.base, startedAt: this.startedAt, readyMs: this.readyMs, error: this.error, dshVersion: this.paths.dshVersion ?? null }
   }
 
   log(line) {
-    this.lines.push(line)
+    this.lines.push(redact(line))
     if (this.lines.length > LOG_LIMIT) this.lines.splice(0, this.lines.length - LOG_LIMIT)
   }
 
   setState(state, error = null) {
     this.state = state
-    this.error = error
+    this.error = error === null ? null : redact(error)
     this.onState(this.snapshot())
   }
 
@@ -53,53 +70,74 @@ export class Sidecar {
     return this.starting
   }
 
+  /** 给 Forsion 引擎的 ACP 连接（registerResidentEngine 的 connect）。进程没在跑 → null。 */
+  connection() {
+    if (this.state !== 'running' || !this.conn) return null
+    return this.conn
+  }
+
   spawnOnce() {
     return new Promise((resolve, reject) => {
       this.secret = randomBytes(32).toString('hex')
       this.lines = []
       this.base = null
       this.token = null
+      this.conn = null
       this.setState('starting')
       const t0 = Date.now()
       const env = childEnv(process.env, {
         binDir: this.paths.runtimePath,
-        extra: { DSH_HOME: this.home, DSH2FORSION_SECRET: this.secret, DSH2FORSION_PARENT_PID: String(process.pid), npm_config_store_dir: join(this.paths.cache, 'pnpm-store'), npm_config_update_notifier: 'false' },
+        extra: { DSH_HOME: this.home, DSH2FORSION_SECRET: this.secret, DSH2FORSION_PARENT_PID: String(process.pid), npm_config_store_dir: join(this.paths.cache, 'pnpm-store'), npm_config_update_notifier: 'false', ...this.extraEnv },
       })
+      const args = [...(this.preload ? ['--import', pathToFileURL(this.preload).href] : []), this.paths.dshBin, '--profile', PROFILE]
       let child
       try {
-        child = spawn(this.paths.nodeBin, [this.paths.dshBin, '--profile', PROFILE, '--host', '127.0.0.1', '--port', '0', '--no-open'], {
-          cwd: homedir(), env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
-        })
+        child = spawn(this.paths.nodeBin, args, { cwd: this.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
       } catch (error) {
         this.setState('failed', String(error.message ?? error))
         reject(error)
         return
       }
       this.child = child
+      this.spawns += 1
+      const output = new PassThrough()
+      let exited
+      const closed = new Promise(r => { exited = r })
+      const conn = { id: `${child.pid ?? 'x'}-${this.spawns}-${randomBytes(4).toString('hex')}`, input: child.stdin, output, closed }
+      child.stdin.on('error', () => { /* 进程退出时写半截：closed 会告诉对方 */ })
       let settled = false
-      let pending = ''
-      const onData = chunk => {
-        pending += chunk.toString('utf8')
-        const parts = pending.split(/\r?\n/)
-        pending = parts.pop() ?? ''
-        for (const line of parts) {
-          if (!line.trim()) continue
-          this.log(line)
-          const m = !settled && line.match(READY)
-          if (m) {
-            settled = true
-            clearTimeout(timer)
-            this.base = m[1]
-            this.token = m[2]
-            this.startedAt = new Date().toISOString()
-            this.readyMs = Date.now() - t0
-            this.setState('running')
-            resolve(this.snapshot())
-          }
+      const onLine = (line, fromStdout) => {
+        if (fromStdout && line.trimStart().startsWith('{')) { output.write(line + '\n'); return }
+        if (!line.trim()) return
+        this.log(line)
+        const m = !settled && line.match(READY)
+        if (m) {
+          settled = true
+          clearTimeout(timer)
+          this.base = m[1]
+          this.token = m[2]
+          this.conn = conn
+          this.startedAt = new Date().toISOString()
+          this.readyMs = Date.now() - t0
+          this.setState('running')
+          resolve(this.snapshot())
         }
       }
-      child.stdout.on('data', onData)
-      child.stderr.on('data', onData)
+      const reader = fromStdout => {
+        let pending = ''
+        return {
+          data: chunk => {
+            pending += chunk.toString('utf8')
+            const parts = pending.split(/\r?\n/)
+            pending = parts.pop() ?? ''
+            for (const line of parts) onLine(line, fromStdout)
+          },
+          flush: () => { if (pending) onLine(pending, fromStdout); pending = '' },
+        }
+      }
+      const out = reader(true), err = reader(false)
+      child.stdout.on('data', out.data)
+      child.stderr.on('data', err.data)
       const timer = setTimeout(() => {
         if (settled) return
         settled = true
@@ -110,6 +148,8 @@ export class Sidecar {
       child.once('error', error => {
         // 异步的启动失败（EACCES、ENOENT…）只有 error、不会再有 exit：这里就把 child 放掉，stop() 才不会干等
         if (this.child === child) this.child = null
+        output.end()
+        exited()
         if (settled) return
         settled = true
         clearTimeout(timer)
@@ -117,10 +157,15 @@ export class Sidecar {
         reject(error)
       })
       child.once('exit', (code, signal) => {
-        if (pending.trim()) this.log(pending)
-        this.child = null
-        this.base = null
-        this.token = null
+        out.flush(); err.flush()
+        output.end()
+        exited()
+        if (this.child === child) {
+          this.child = null
+          this.base = null
+          this.token = null
+          this.conn = null
+        }
         if (!settled) {
           settled = true
           clearTimeout(timer)
@@ -187,7 +232,7 @@ export class Sidecar {
     return body.result.value
   }
 
-  /** DSH Space 用的登录地址（webview 打开它换 cookie）。 */
+  /** 工作台用的登录地址（受控网页容器打开它换 cookie）。 */
   spaceUrl() {
     if (this.state !== 'running' || !this.base) return null
     return `${this.base}/?token=${this.token}`

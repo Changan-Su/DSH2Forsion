@@ -1,181 +1,215 @@
 // DSH2Forsion 界面半身。宿主用 new Function('ctx', source) 求值：本文件就是 setup 体，不许顶层 import / export。
-// Native plugin views, runtime management, and a separate legacy diagnostics surface.
+// 第 1 档（融合）：DSH 工作台（主区页签，里面是常驻那个 DSH 自己的网页界面）、DSH Agent 的 Harness 卡上的几行、
+// 对话右键菜单「在 DSH 工作台里打开」、工作台里装插件前的体检报告、运行时管理页。
 // 所有动作都经 ctx.tangu.request 交给包里的引擎半身（tangu-plugins/dsh2forsion）。
 const ENGINE = 'dsh2forsion'
-const PARTITION = 'persist:dsh2forsion'
-// DSH Space 盯 sidecar 的间隔：装、卸、回滚插件后它会换端口重启，旧页面就死了
+const ENGINE_ID = 'dsh'
+// 工作台盯常驻 DSH 的间隔：重启后端口和登录令牌都会变，旧页面就死了
 const WATCH_MS = 2000
-
-// Spaces own independent active sessions. Entering a plugin-only Space clears
-// agentStatus().sessionId, so remember the last selection during this activation.
-// This is never restored from disk; the engine revalidates ownership and cwd.
-let selectedSessionId = ctx.tangu?.agentStatus?.()?.sessionId || null
-ctx.tangu?.subscribeAgentStatus?.(status => {
-  if (status?.sessionId) selectedSessionId = status.sessionId
-})
+const REVIEW_MS = 1000
 
 const STRINGS = {
   zh: {
-    spaceTitle: 'DSH 插件',
-    diagnosticsTitle: 'DSH 诊断',
-    nativeTitle: 'Task Board',
-    nativeSkillsTitle: '技能管理',
-    nativeGitTitle: 'Git Graph',
-    nativePanel: '插件面板',
-    nativeHint: '先在 Tangu 侧栏选择一个项目会话及模型，再打开此视图。任务使用 Tangu 的会话、审批与历史记录。',
-    nativeSessionRequired: '请先在 Tangu 侧栏选择项目会话。固定会话窗格不会改变活动项目。',
-    nativeOpen: '打开插件面板',
-    nativeUnsupported: '当前宿主缺少原生视图接口，请更新 Forsion。',
+    workbenchTitle: 'DSH 工作台',
     manageTitle: 'DeepSeek Harness 运行时',
-    cmdOpen: 'DSH2Forsion：打开原生插件视图',
-    cmdManage: 'DSH2Forsion：管理运行时与插件',
-    noEngine: '没连上本机引擎。DSH2Forsion 只能在桌面端的本机引擎上运行。',
+    cmdOpen: 'DSH2Forsion：打开 DSH 工作台',
+    cmdManage: 'DSH2Forsion：管理运行时',
     loading: '正在连接 DSH…',
-    starting: '正在启动 DSH，第一次大约要十几秒…',
-    restarting: 'DSH 正在重启（装、卸插件后会自动重启）…',
-    stoppedNote: 'DSH 已停止。',
-    onboardTitle: '在 Tangu 与 Forsion 中使用 DSH 插件',
-    onboardBody: '兼容运行时把 DSH 插件的工具与技能交给 Tangu，把已适配的插件面板交给 Forsion。任务由 Tangu 执行，审批和历史保留在原生会话中。',
-    onboardDownload: '第一次要下载官方 Node.js {node} 和 DSH {dsh} 运行时，共约 300 MB；装好后占约 1.1 GB 磁盘，运行时常驻约 400 MB 内存。',
-    onboardSource: '下载来源：nodejs.org 与 npm 官方源，失败时改用国内镜像 npmmirror（可在插件设置里改）。',
-    onboardTrust: 'DSH 插件是在你电脑上以完整权限运行的代码：能读写文件、联网、运行命令。DSH2Forsion 把它们放在单独的进程里，但这不是沙箱。只装你信任的插件。',
-    onboardButton: '下载并启动',
-    installing: '正在下载和安装…',
-    failed: 'DSH 没有起来',
+    starting: '正在启动 DSH…',
+    restarting: 'DSH 正在重启…',
+    failed: 'DSH 没有启动起来',
     retry: '重试',
-    openManage: '查看日志与管理',
-    restoreGood: '恢复到上次能启动的状态',
-    sandboxNote: '如果开着主机沙箱，Forsion 会停用所有引擎插件，DSH2Forsion 也就用不了。',
-    sectionRuntime: '运行时',
-    sectionTools: '交给 Tangu 的工具',
-    sectionPlugins: '已装的 DSH 插件',
-    sectionInstall: '安装插件',
-    sectionLogs: '日志',
-    stateRunning: '运行中',
-    stateStarting: '启动中',
-    stateStopped: '已停止',
-    stateFailed: '出错',
-    stateMissing: '未安装',
-    start: '启动',
-    stop: '停止',
-    restart: '重启',
-    openSpace: '打开插件视图',
-    install: '安装',
-    remove: '移除',
-    rollback: '撤销上一次改动',
+    start: '启动 DSH',
+    restart: '重启 DSH',
+    stop: '停止 DSH',
     refresh: '刷新',
-    noTools: '还没有。装了带工具的 DSH 插件后会出现在这里；Tangu 每次调用都会先问你。',
-    noPlugins: '还没有装插件。在下面输入 npm 包名安装，或者在 DSH Space 的「插件」页里浏览。在 DSH Space 里直接装的插件不经过装前试启动。',
-    installHint: 'npm 包名，可带版本，例如 dsh-free-search@0.9.5',
-    installTrial: '先在临时副本里试装、试启动，通过了才装进来…',
-    resultInstalled: '已安装 {name}。',
-    resultPartial: '已安装 {name}，但有部分没激活：',
-    resultFailed: '没装上：',
-    resultBlocked: '试启动没通过，没有安装。装上它会让 DSH 整个起不来：',
-    resultNeedsConfirm: '试启动能起，但 {name} 有部分没激活，功能可能缺一块：',
-    resultVersion: '{name} 声明不支持当前的 DSH {dsh}。',
-    resultVerified: '这个版本在 DSH2Forsion 的兼容矩阵里实测过，可以放心装。',
-    confirmAnyway: '仍然安装',
-    forceAnyway: '强制安装（不建议）',
-    acceptRisk: '接受风险并安装',
-    removed: '已移除 {name}。',
-    rolledBack: '已撤销上一次改动。被换下来的那份（包括之后改过的插件设置）存在数据目录的 backups/undone-* 里。',
-    rollbackFailed: '没撤销成功，快照还在：',
-    nothingToRollBack: '没有可以撤销的改动。',
-    pluginError: '出错',
+    openManage: '运行时设置',
+    openWorkbench: '打开工作台',
+    restoreGood: '退回上次能启动的插件组合',
+    stoppedNote: 'DSH 已停止。下一次和 DSH 对话或点下面的按钮时会再启动。',
+    noHost: '这个版本的 Forsion 还不能在页签里打开网页界面，请更新 Forsion。',
+    noEngine: '本插件需要 Forsion 桌面版的本机引擎。',
+    onboardTitle: '准备 DSH 运行时',
+    onboardBody: '工作台和 DSH 这个 Agent 的对话都连一个常驻在后台的 DeepSeek Harness。第一次使用要下载它的运行时。',
+    onboardDownload: '会下载 Node {node} 和 DSH {dsh}，约 1.1 GB 磁盘。',
+    onboardSource: '来源：nodejs.org 与 npm 官方源，失败时用国内镜像。可在运行时设置里改。',
+    onboardTrust: 'DSH 用你自己的 DSH 目录（{home}），会话和技能与你自己的 DSH 是同一批；它另用一份名叫 forsion 的组合，你原来装的 DSH 插件不会自动出现在这里。',
+    onboardButton: '下载并启动',
+    installing: '正在下载…',
+    incompatibleTitle: '等插件更新',
+    incompatibleBody: 'DSH {dsh} 和这个版本的 DSH2Forsion 对不上（{reason}）。工作台先停用。',
+    incompatibleChat: 'DSH 这个 Agent 的对话暂时退回每轮起一个 DSH 的方式：还能聊，但依赖网页界面的 DSH 插件在这条路上不生效。',
+    rollbackRuntime: '先退回上一版 DSH',
+    noPrevious: '这台电脑上没有装过 DSH2Forsion 验过的更早版本，退不了。',
+    foreignProfile: '你的 DSH 目录里已经有一份叫 forsion 的组合，不是 DSH2Forsion 建的，所以没有碰它。在 DSH 里把它改个名再重试。',
+    reviewChecking: '正在体检 {spec}：在临时目录里试启动两次，大约要半分钟…',
+    reviewTitle: '要装 {name} 吗？',
+    reviewTools: '加了 {n} 个工具',
+    reviewNoTools: '没有加工具',
+    reviewPrompt: '提示词多了 {n} 字',
+    reviewPromptLess: '提示词少了 {n} 字',
+    reviewPromptSame: '提示词没有变',
+    reviewInactive: '有没启动的部分',
+    reviewAllActive: '各部分都启动了',
+    reviewHosts: '启动时连了这些外部主机',
+    reviewNoHosts: '启动时没有连外部主机',
+    reviewBlocked: '装上以后 DSH 起不来或有核心包被盖掉，不建议装。',
+    reviewVersion: 'DSH 说这个插件没写明支持当前版本。放行后 DSH 会自己再问一次要不要承担风险。',
+    reviewFailed: '体检没做完：{reason}',
+    reviewMeasured: '在临时目录里装前、装后各试启动一次比出来的，外连主机是实际量到的。',
+    reviewAllow: '装',
+    reviewDeny: '不装',
+    reviewTimeout: '15 分钟内不回答就按不装处理。',
+    rowRuntime: '运行时',
+    rowChannel: '更新通道',
+    rowPlugins: 'DSH 插件',
+    stateRunning: 'DSH {dsh} · 在运行',
+    stateStarting: 'DSH {dsh} · 正在启动',
+    stateStopped: 'DSH {dsh} · 已停止',
+    stateFailed: 'DSH {dsh} · 启动失败',
+    stateMissing: '还没有下载',
+    stateIncompatible: 'DSH {dsh} · 和插件对不上',
+    channelPinned: '固定（插件验过的 {dsh}）',
+    channelFollow: '跟版（每天自检过的新版）',
+    channelUnpublished: '跟版通道还没开放，先停在 {dsh}。',
+    channelLatest: '通道上最新的是 {dsh}。',
+    pluginsCount: '{n} 个',
+    pluginsNone: '还没装',
+    pluginsManage: '管理',
+    pluginsHint: '在工作台里 DSH 自己的「插件」页装；装之前会先体检。',
+    openInWorkbench: '在 DSH 工作台里打开',
+    holdNoSession: '这场对话还没在 DSH 上跑过，先打开工作台。',
+    holdBusy: '这场对话正在跑或正在 DSH 里别处开着，先打开工作台。',
+    holdFailed: '没能把这场对话交给工作台：{reason}',
+    sectionRuntime: '运行时',
+    sectionPlugins: 'DSH 插件',
+    sectionLogs: '日志',
+    sectionTools: '交给 Tangu 的工具',
+    versionsLine: '在用 DSH {dsh} · 这个插件版本验过 {pinned} · 盘上装着 {installed}',
+    homeLine: 'DSH 目录 {home} · 组合 {profile}',
+    checkChannel: '检查新版',
+    noPlugins: '这份组合里还没有装 DSH 插件。在工作台里 DSH 自己的「插件」页装。',
+    remove: '卸载',
+    removed: '已卸载 {name}。',
+    rollback: '撤回上一次插件改动',
+    rolledBack: '已撤回。',
+    nothingToRollBack: '没有可撤回的改动。',
+    rollbackFailed: '撤回失败：',
     pluginOk: '已启用',
     pluginOff: '已停用',
-    knownOk: '兼容矩阵：装载通过',
-    knownPartial: '兼容矩阵：部分',
-    knownBad: '兼容矩阵：不行',
+    pluginError: '出错',
+    toolsOff: '缺省不把 DSH 插件的工具交给 Tangu：要用 DSH 插件做的事交给 DSH 这个 Agent。可在插件设置里打开。',
+    toolsOn: '交给 Tangu 的工具 {n} 个：{list}',
     busy: '正在处理：{job}',
-    tangu: 'Tangu 的模型能看到 {tools} 个 DSH 工具、{sections} 段 DSH 插件说明。',
+    restartNote: '重启 DSH 会中断正在跑的 DSH 对话。',
+    oldHostResident: '这个版本的 Forsion 还不能让 DSH 的对话连这个常驻的 DSH：对话照旧每轮起一个 DSH，工作台里看不到它们。更新 Forsion 后连得上。',
   },
   en: {
-    spaceTitle: 'DSH plugins',
-    diagnosticsTitle: 'DSH diagnostics',
-    nativeTitle: 'Task Board',
-    nativeSkillsTitle: 'Skills Manager',
-    nativeGitTitle: 'Git Graph',
-    nativePanel: 'Plugin panel',
-    nativeHint: 'Select a project session and model from the Tangu sidebar, then open this view. Tasks use native Tangu sessions, approvals, and history.',
-    nativeSessionRequired: 'Select a project session from the Tangu sidebar first. A pinned session pane does not change the active project.',
-    nativeOpen: 'Open plugin panel',
-    nativeUnsupported: 'Update Forsion to use the native view interface.',
+    workbenchTitle: 'DSH workbench',
     manageTitle: 'DeepSeek Harness runtime',
-    cmdOpen: 'DSH2Forsion: Open native plugin views',
-    cmdManage: 'DSH2Forsion: Manage runtime and plugins',
-    noEngine: 'Not connected to the local engine. DSH2Forsion only runs on the desktop app with its local engine.',
+    cmdOpen: 'DSH2Forsion: Open the DSH workbench',
+    cmdManage: 'DSH2Forsion: Manage the runtime',
     loading: 'Connecting to DSH…',
-    starting: 'Starting DSH. The first start takes a few seconds…',
-    restarting: 'DSH is restarting. It restarts after plugins are installed or removed…',
-    stoppedNote: 'DSH is stopped.',
-    onboardTitle: 'Use DSH plugins in Tangu and Forsion',
-    onboardBody: 'The compatibility runtime offers DSH plugin tools and skills to Tangu and adapted plugin panels to Forsion. Tangu executes tasks and keeps approvals and history in native sessions.',
-    onboardDownload: 'The first start downloads official Node.js {node} and the DSH {dsh} runtime, about 300 MB in total. Once installed it takes about 1.1 GB of disk and about 400 MB of memory while running.',
-    onboardSource: 'Downloads come from nodejs.org and the official npm registry, falling back to the npmmirror mirror in China. You can change this in the plugin settings.',
-    onboardTrust: 'DSH plugins are code that runs on your computer with full permissions: they can read and write files, use the network and run commands. DSH2Forsion keeps them in a separate process, but that is not a sandbox. Only install plugins you trust.',
-    onboardButton: 'Download and start',
-    installing: 'Downloading and installing…',
+    starting: 'Starting DSH…',
+    restarting: 'DSH is restarting…',
     failed: 'DSH did not start',
     retry: 'Retry',
-    openManage: 'Logs and settings',
-    restoreGood: 'Go back to the last state that started',
-    sandboxNote: 'When the host sandbox is on, Forsion turns off every engine plugin, so DSH2Forsion is unavailable.',
-    sectionRuntime: 'Runtime',
-    sectionTools: 'Tools offered to Tangu',
-    sectionPlugins: 'Installed DSH plugins',
-    sectionInstall: 'Install a plugin',
-    sectionLogs: 'Logs',
-    stateRunning: 'Running',
-    stateStarting: 'Starting',
-    stateStopped: 'Stopped',
-    stateFailed: 'Error',
-    stateMissing: 'Not installed',
-    start: 'Start',
-    stop: 'Stop',
-    restart: 'Restart',
-    openSpace: 'Open plugin views',
-    install: 'Install',
-    remove: 'Remove',
-    rollback: 'Undo the last change',
+    start: 'Start DSH',
+    restart: 'Restart DSH',
+    stop: 'Stop DSH',
     refresh: 'Refresh',
-    noTools: 'None yet. Tools from DSH plugins you install show up here. Tangu asks you before every call.',
-    noPlugins: 'No plugins yet. Enter an npm package name below, or browse the Plugins page in the DSH Space. Plugins installed from inside the DSH Space skip the trial start.',
-    installHint: 'npm package name, optionally with a version, e.g. dsh-free-search@0.9.5',
-    installTrial: 'Installing and starting it in a scratch copy first; it is added only if that works…',
-    resultInstalled: 'Installed {name}.',
-    resultPartial: 'Installed {name}, but part of it did not activate:',
-    resultFailed: 'Not installed:',
-    resultBlocked: 'The trial start failed, so nothing was installed. Installing it would stop DSH from starting:',
-    resultNeedsConfirm: 'DSH starts with it, but part of {name} did not activate, so some features may be missing:',
-    resultVersion: '{name} says it does not support the current DSH {dsh}.',
-    resultVerified: 'This version passed the DSH2Forsion compatibility matrix.',
-    confirmAnyway: 'Install anyway',
-    forceAnyway: 'Force install (not recommended)',
-    acceptRisk: 'Accept the risk and install',
-    removed: 'Removed {name}.',
-    rolledBack: 'Undid the last change. The state it replaced, including plugin settings changed since, is kept in backups/undone-* in the data folder.',
-    rollbackFailed: 'Could not undo; the snapshot is kept:',
-    nothingToRollBack: 'There is nothing to undo.',
-    pluginError: 'Error',
+    openManage: 'Runtime settings',
+    openWorkbench: 'Open workbench',
+    restoreGood: 'Go back to the last plugin set that started',
+    stoppedNote: 'DSH is stopped. It starts again the next time you chat with DSH or press the button below.',
+    noHost: 'This version of Forsion cannot open web pages in a tab yet. Update Forsion.',
+    noEngine: 'This plugin needs the local engine of Forsion Desktop.',
+    onboardTitle: 'Prepare the DSH runtime',
+    onboardBody: 'The workbench and chats with the DSH agent connect to one DeepSeek Harness that keeps running in the background. First use downloads its runtime.',
+    onboardDownload: 'Downloads Node {node} and DSH {dsh}, about 1.1 GB of disk.',
+    onboardSource: 'Source: nodejs.org and the official npm registry, then the China mirror if they fail. You can change this in runtime settings.',
+    onboardTrust: 'DSH uses your own DSH folder ({home}), so sessions and skills are the same as in your own DSH. It uses a separate profile named forsion, so plugins you installed in DSH before do not appear here automatically.',
+    onboardButton: 'Download and start',
+    installing: 'Downloading…',
+    incompatibleTitle: 'Waiting for a plugin update',
+    incompatibleBody: 'DSH {dsh} does not match this version of DSH2Forsion ({reason}). The workbench is turned off for now.',
+    incompatibleChat: 'Chats with the DSH agent fall back to starting DSH for each turn: you can still chat, but DSH plugins that rely on its web interface do not work that way.',
+    rollbackRuntime: 'Go back to the previous DSH',
+    noPrevious: 'No earlier DSH version that DSH2Forsion has checked is installed on this computer.',
+    foreignProfile: 'Your DSH folder already has a profile named forsion that DSH2Forsion did not create, so it was left alone. Rename it in DSH, then try again.',
+    reviewChecking: 'Checking {spec}: starting it twice in a scratch folder, about half a minute…',
+    reviewTitle: 'Install {name}?',
+    reviewTools: 'Adds {n} tools',
+    reviewNoTools: 'Adds no tools',
+    reviewPrompt: 'Adds {n} characters to the prompt',
+    reviewPromptLess: 'Removes {n} characters from the prompt',
+    reviewPromptSame: 'Does not change the prompt',
+    reviewInactive: 'Some parts did not start',
+    reviewAllActive: 'All parts started',
+    reviewHosts: 'Connected to these outside hosts while starting',
+    reviewNoHosts: 'Connected to no outside hosts while starting',
+    reviewBlocked: 'With it, DSH does not start or a core package is overridden. Not recommended.',
+    reviewVersion: 'DSH says this plugin does not state support for the current version. If you allow it, DSH asks once more whether to accept the risk.',
+    reviewFailed: 'The check did not finish: {reason}',
+    reviewMeasured: 'Measured by starting DSH in a scratch folder before and after adding it; the hosts are what it actually connected to.',
+    reviewAllow: 'Install',
+    reviewDeny: 'Don\'t install',
+    reviewTimeout: 'No answer in 15 minutes counts as don\'t install.',
+    rowRuntime: 'Runtime',
+    rowChannel: 'Update channel',
+    rowPlugins: 'DSH plugins',
+    stateRunning: 'DSH {dsh} · running',
+    stateStarting: 'DSH {dsh} · starting',
+    stateStopped: 'DSH {dsh} · stopped',
+    stateFailed: 'DSH {dsh} · failed to start',
+    stateMissing: 'Not downloaded yet',
+    stateIncompatible: 'DSH {dsh} · does not match the plugin',
+    channelPinned: 'Pinned (checked {dsh})',
+    channelFollow: 'Follow (newer versions checked daily)',
+    channelUnpublished: 'The follow channel is not open yet; staying on {dsh}.',
+    channelLatest: 'The newest on the channel is {dsh}.',
+    pluginsCount: '{n}',
+    pluginsNone: 'None yet',
+    pluginsManage: 'Manage',
+    pluginsHint: 'Install them on DSH\'s own Plugins page in the workbench; each is checked first.',
+    openInWorkbench: 'Open in the DSH workbench',
+    holdNoSession: 'This conversation has not run on DSH yet. Opening the workbench.',
+    holdBusy: 'This conversation is running or open elsewhere in DSH. Opening the workbench.',
+    holdFailed: 'Could not hand this conversation to the workbench: {reason}',
+    sectionRuntime: 'Runtime',
+    sectionPlugins: 'DSH plugins',
+    sectionLogs: 'Logs',
+    sectionTools: 'Tools offered to Tangu',
+    versionsLine: 'Using DSH {dsh} · this plugin version checked {pinned} · installed: {installed}',
+    homeLine: 'DSH folder {home} · profile {profile}',
+    checkChannel: 'Check for a newer DSH',
+    noPlugins: 'No DSH plugins in this profile yet. Install them on DSH\'s own Plugins page in the workbench.',
+    remove: 'Uninstall',
+    removed: 'Uninstalled {name}.',
+    rollback: 'Undo the last plugin change',
+    rolledBack: 'Undone.',
+    nothingToRollBack: 'Nothing to undo.',
+    rollbackFailed: 'Undo failed: ',
     pluginOk: 'On',
     pluginOff: 'Off',
-    knownOk: 'Matrix: loads',
-    knownPartial: 'Matrix: partial',
-    knownBad: 'Matrix: broken',
-    busy: 'Working: {job}',
-    tangu: "Tangu's model sees {tools} DSH tools and {sections} DSH plugin instructions.",
+    pluginError: 'Error',
+    toolsOff: 'DSH plugin tools are not offered to Tangu by default: hand work that needs a DSH plugin to the DSH agent. You can turn this on in the plugin settings.',
+    toolsOn: '{n} tools offered to Tangu: {list}',
+    busy: 'Working on: {job}',
+    restartNote: 'Restarting DSH interrupts DSH chats that are running.',
+    oldHostResident: 'This version of Forsion cannot connect DSH chats to this DSH yet: each turn still starts its own DSH, and the workbench does not show those chats. Update Forsion to connect them.',
   },
 }
 
 const lang = () => (ctx.getLocale?.() ?? 'zh') === 'en' ? 'en' : 'zh'
 const t = (key, vars = {}) => String(STRINGS[lang()][key] ?? STRINGS.zh[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ''))
+// 给宿主画的文案（Harness 行、右键菜单）：两种语言都给，宿主画的那一刻挑
+const both = (key, vars = {}) => ({ zh: String(STRINGS.zh[key]).replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? '')), en: String(STRINGS.en[key]).replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? '')) })
 
 const CSS = `
 .d2f { box-sizing: border-box; height: 100%; color: var(--text); font: 13px/1.5 var(--font-ui); }
 .d2f * { box-sizing: border-box; }
-.d2f-space { display: flex; flex-direction: column; height: 100%; }
+.d2f-space { display: flex; flex-direction: column; height: 100%; position: relative; }
 .d2f-surface { flex: 1; min-height: 0; display: flex; }
 .d2f-surface webview { flex: 1; width: 100%; height: 100%; border: 0; }
 .d2f-center { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; overflow: auto; }
@@ -201,11 +235,11 @@ const CSS = `
 .d2f-item-name { font-weight: 500; overflow-wrap: anywhere; }
 .d2f-badge { font-size: 11.5px; color: var(--text-muted); }
 .d2f-badge.bad { color: var(--danger); }
-.d2f-input { flex: 1; min-width: 220px; font: inherit; padding: 5px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg); color: var(--text); }
-.d2f-result { display: grid; gap: 6px; }
-.d2f-result ul { margin: 0; padding-left: 18px; color: var(--text-muted); font: 11.5px/1.45 var(--font-mono); overflow-wrap: anywhere; }
-.d2f-native-toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
-.d2f-native-toolbar select { padding: 4px 8px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.d2f-review { position: absolute; right: 16px; bottom: 16px; width: min(420px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; display: grid; gap: 10px; padding: 14px 16px; border-radius: var(--radius-lg, 10px); border: 1px solid var(--border); background: var(--surface-overlay, var(--bg)); box-shadow: var(--shadow-overlay, 0 8px 28px rgba(0,0,0,.18)); z-index: 2; }
+.d2f-review h3 { margin: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.d2f-review ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.d2f-review code { font: 11.5px/1.45 var(--font-mono); overflow-wrap: anywhere; }
+.d2f-review .d2f-row { justify-content: flex-end; }
 `
 
 function h(tag, attrs = {}, ...children) {
@@ -240,134 +274,30 @@ function hostAppearance() {
   return { theme: mode === 'dark' ? 'dark' : 'light', locale: lang() }
 }
 
-// The main Space mounts only the selected third-party slot, with native execution.
-ctx.registerView({
-  id: 'space', title: t('spaceTitle'), icon: 'boxes',
-  mount(el) {
-    let alive = true, generation = 0, disposeSurface = null, mountedBase = null, busy = false, pendingOpen = false
-    let panelKey = 'task-board'
-    const panelTitles = { 'task-board': 'nativeTitle', 'skills-manager': 'nativeSkillsTitle', 'git-graph': 'nativeGitTitle' }
-    const root = h('div', { class: 'd2f d2f-space' })
-    withStyle(root)
-    const body = h('div', { class: 'd2f-surface' })
-    const picker = h('select', { 'aria-label': t('nativePanel'), onchange: () => { panelKey = picker.value; void open() } },
-      ...Object.entries(panelTitles).map(([value, key]) => h('option', { value }, t(key))))
-    root.append(h('div', { class: 'd2f-native-toolbar' }, picker), body); el.append(root)
-    const clear = () => { disposeSurface?.(); disposeSurface = null; mountedBase = null; body.replaceChildren() }
-    const notice = (message, retry = true) => {
-      clear()
-      body.append(h('div', { class: 'd2f-center' }, h('div', { class: 'd2f-card' }, h('h2', {}, t(panelTitles[panelKey])),
-        h('p', { class: 'd2f-muted' }, t('nativeHint')), message ? h('p', { class: 'd2f-error' }, message) : null,
-        h('div', { class: 'd2f-row' }, retry ? h('button', { class: 'd2f-btn primary', onclick: () => void open() }, t('nativeOpen')) : null,
-          h('button', { class: 'd2f-btn', onclick: () => ctx.app?.openSettings?.('fplugin:dsh2forsion') }, t('openManage'))))))
-    }
-    const appearance = () => { void call('/appearance', { method: 'POST', body: hostAppearance() }).catch(() => {}) }
-    const observer = new MutationObserver(appearance)
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] })
-    const offLocale = ctx.subscribeLocale?.(() => {
-      picker.setAttribute('aria-label', t('nativePanel'))
-      for (const option of picker.options) option.textContent = t(panelTitles[option.value])
-      appearance()
-    })
-    const open = async () => {
-      if (busy) { pendingOpen = true; return }
-      const mine = ++generation
-      busy = true; clear(); body.append(h('div', { class: 'd2f-center' }, t('loading')))
-      try {
-        const status = await call('/status')
-        if (!alive || mine !== generation) return
-        if (!status.runtime?.installed) {
-          clear()
-          body.append(h('div', { class: 'd2f-center' }, h('div', { class: 'd2f-card' },
-            h('h2', {}, t('onboardTitle')), h('p', {}, t('onboardBody')),
-            h('p', {}, t('onboardDownload', { node: status.nodeVersion, dsh: status.dshVersion })), h('p', { class: 'd2f-muted' }, t('onboardSource')),
-            h('p', { class: 'd2f-muted' }, t('onboardTrust')),
-            h('button', { class: 'd2f-btn primary', onclick: async event => {
-              event.currentTarget.disabled = true
-              event.currentTarget.textContent = t('installing')
-              try {
-                await call('/runtime/install', { method: 'POST' })
-                while (alive) {
-                  const next = await call('/status')
-                  if (next.job?.error) throw new Error(next.job.error)
-                  if (!next.job?.running) { await open(); break }
-                  await sleep(1000)
-                }
-              } catch (error) { if (alive) notice(String(error.message || error)) }
-            } }, t('onboardButton')))))
-          return
-        }
-        const sessionId = ctx.tangu?.agentStatus?.()?.sessionId || selectedSessionId
-        if (!sessionId) throw new Error(t('nativeSessionRequired'))
-        const { url } = await call('/native/view', { method: 'POST', body: { panelKey, sessionId, models: ctx.tangu?.models?.() || [] } })
-        if (!alive || mine !== generation) return
-        clear()
-        if (ctx.ui?.mountWebSurface) {
-          const handle = ctx.ui.mountWebSurface(body, { url, partition: PARTITION })
-          disposeSurface = typeof handle === 'function' ? handle : () => handle?.dispose?.()
-        } else {
-          // Current Forsion Desktop exposes its Electron webview carrier to
-          // plugin DOM. The dedicated slot URL is the same in either carrier.
-          const view = document.createElement('webview')
-          view.setAttribute('partition', PARTITION)
-          view.setAttribute('src', url)
-          body.append(view)
-          disposeSurface = () => view.remove()
-        }
-        mountedBase = new URL(url).origin
-        appearance()
-      } catch (error) { if (alive && mine === generation) notice(String(error.message || error)) }
-      finally { if (mine === generation) busy = false; if (alive && pendingOpen) { pendingOpen = false; void open() } }
-    }
-    let timer
-    const poll = async () => {
-      try {
-        if (mountedBase && !busy) {
-          const { events } = await call('/native/events')
-          for (const event of events || []) {
-            if (!alive) break
-            let error
-            try {
-              if (event.type !== 'openSession' || !ctx.tangu?.openSession) throw new Error(t('nativeUnsupported'))
-              await ctx.tangu.openSession(event.sessionId)
-            } catch (e) { error = String(e.message || e) }
-            await call('/native/ack', { method: 'POST', body: { eventId: event.eventId, error } })
-          }
-          const status = await call('/status')
-          if (alive && status.sidecar?.state === 'running' && status.sidecar.base !== mountedBase) await open()
-          else if (alive && status.sidecar?.state === 'failed') notice(status.sidecar.error)
-        }
-      } catch { /* Transient restart; the next poll rechecks the actual sidecar state. */ }
-      if (alive) timer = setTimeout(poll, 800)
-    }
-    void open(); timer = setTimeout(poll, 800)
-    return () => { alive = false; generation++; clearTimeout(timer); observer.disconnect(); offLocale?.(); clear(); root.remove() }
-  },
-})
+const openWorkbench = () => ctx.openView?.('workbench', { location: 'main' })
 
-// Separate diagnostics entry retained for troubleshooting the compatibility runtime.
+// ── DSH 工作台：主区页签，里面是常驻那个 DSH 自己的网页界面（不换肤、不藏元素）。关掉页签不停 DSH。──────────
 
 ctx.registerView({
-  id: 'diagnostics',
-  title: t('diagnosticsTitle'),
+  id: 'workbench',
+  title: t('workbenchTitle'),
   icon: 'boxes',
   mount(el) {
     let alive = true
-    let disposeSurface = null
-    const root = h('div', { class: 'd2f d2f-space' })
+    let surface = null
+    const root = h('div', { class: 'd2f d2f-space', 'data-d2f': 'workbench' })
     withStyle(root)
     const body = h('div', { class: 'd2f-surface' })
-    root.append(body)
+    const review = h('div', { class: 'd2f-review', hidden: true, 'data-d2f': 'review' })
+    root.append(body, review)
     el.append(root)
 
-    // phase：surface = 嵌着 DSH 页面；waiting = 等它重启回来；其余（loading / onboarding / failed）由用户操作推进
+    // phase：surface = 嵌着 DSH 页面；waiting = 等它重启回来；其余（loading / onboarding / failed / incompatible）由用户操作推进
     let phase = 'loading'
     let mountedBase = null
-    const show = (...nodes) => {
-      if (disposeSurface) { disposeSurface(); disposeSurface = null }
-      mountedBase = null
-      body.replaceChildren(h('div', { class: 'd2f-center' }, ...nodes))
-    }
+    let seenEvents = 0
+    const dropSurface = () => { if (surface) { surface.dispose(); surface = null } mountedBase = null }
+    const show = (...nodes) => { dropSurface(); body.replaceChildren(h('div', { class: 'd2f-center' }, ...nodes)) }
 
     const syncAppearance = () => { void call('/appearance', { method: 'POST', body: hostAppearance() }).catch(() => {}) }
     const modeObserver = new MutationObserver(syncAppearance)
@@ -375,41 +305,55 @@ ctx.registerView({
     const offLocale = ctx.subscribeLocale?.(() => syncAppearance())
 
     const mountSurface = (url) => {
-      if (disposeSurface) { disposeSurface(); disposeSurface = null }
-      phase = 'surface'
-      mountedBase = new URL(url).origin
+      dropSurface()
       body.replaceChildren()
-      // 宿主有受控接缝就用它（焦点、键盘、销毁由宿主管）；没有就用裸 <webview>。
-      // 不能用 iframe：DSH 的登录 cookie 是 SameSite=Strict，跨站 iframe 带不上（M0 实测）。
+      // 受控网页容器（宿主管分区、导航只许回环、权限、销毁）。不能用 iframe：DSH 的登录 cookie 是 SameSite=Strict。
       if (ctx.ui?.mountWebSurface) {
-        const handle = ctx.ui.mountWebSurface(body, { url, partition: PARTITION })
-        disposeSurface = typeof handle === 'function' ? handle : () => handle?.dispose?.()
+        const handle = ctx.ui.mountWebSurface(body, { url, partition: 'workbench', onLoadFail: () => { if (alive && phase === 'surface') void open() } })
+        surface = { dispose: () => handle?.dispose?.(), reload: () => handle?.reload?.() }
       } else {
+        // 旧宿主：裸 <webview>（宿主会把它钉在内置浏览器的分区里）
         const wv = document.createElement('webview')
-        wv.setAttribute('partition', PARTITION)
+        wv.setAttribute('partition', 'persist:dsh2forsion')
         wv.setAttribute('src', url)
         body.append(wv)
-        disposeSurface = () => wv.remove()
+        surface = { dispose: () => wv.remove(), reload: () => wv.reload?.() }
       }
+      phase = 'surface'
+      mountedBase = new URL(url).origin
       syncAppearance()
     }
 
-    const failed = (message, status) => {
+    const failed = (message) => {
       phase = 'failed'
       show(h('div', { class: 'd2f-card' },
         h('h2', {}, t('failed')),
         h('p', { class: 'd2f-error' }, message),
-        status?.sidecar?.state === 'failed' ? h('p', { class: 'd2f-muted' }, t('sandboxNote')) : null,
         h('div', { class: 'd2f-row' },
           h('button', { class: 'd2f-btn primary', onclick: () => void open() }, t('retry')),
           h('button', { class: 'd2f-btn', onclick: () => void restoreGood() }, t('restoreGood')),
-          h('button', { class: 'd2f-btn', onclick: () => ctx.app?.openSettings?.('fplugin:dsh2forsion') }, t('openManage')))))
+          h('button', { class: 'd2f-btn', onclick: () => openManage() }, t('openManage')))))
     }
 
     const restoreGood = async () => {
       show(h('p', { class: 'd2f-muted' }, t('starting')))
       try { await call('/plugins/restore-last-good', { method: 'POST' }); await open() }
       catch (error) { if (alive) failed(String(error.message ?? error)) }
+    }
+
+    const incompatibleCard = (inc, previous) => {
+      phase = 'incompatible'
+      const back = h('button', { class: 'd2f-btn primary', 'data-act': 'runtime-previous', onclick: async () => {
+        back.disabled = true
+        try { await call('/runtime/previous', { method: 'POST' }); await open() } catch (error) { if (alive) failed(String(error.message ?? error)) }
+      } }, t('rollbackRuntime'))
+      if (!previous) back.disabled = true
+      show(h('div', { class: 'd2f-card', 'data-d2f': 'incompatible' },
+        h('h2', {}, t('incompatibleTitle')),
+        h('p', {}, t('incompatibleBody', { dsh: inc.dshVersion, reason: inc.reason })),
+        h('p', { class: 'd2f-warn' }, t('incompatibleChat')),
+        h('div', { class: 'd2f-row' }, back, h('button', { class: 'd2f-btn', onclick: () => openManage() }, t('openManage'))),
+        previous ? null : h('p', { class: 'd2f-muted' }, t('noPrevious'))))
     }
 
     const onboarding = (status) => {
@@ -420,7 +364,7 @@ ctx.registerView({
         h('p', {}, t('onboardBody')),
         h('p', {}, t('onboardDownload', { node: status.nodeVersion, dsh: status.dshVersion })),
         h('p', { class: 'd2f-muted' }, t('onboardSource')),
-        h('p', { class: 'd2f-warn' }, t('onboardTrust')),
+        h('p', { class: 'd2f-warn' }, t('onboardTrust', { home: status.fusion?.home ?? '~/.dsh' })),
         h('div', { class: 'd2f-row' }, button),
         log)
       button.addEventListener('click', async () => {
@@ -453,22 +397,27 @@ ctx.registerView({
       let status
       try { status = await call('/status') } catch (error) { if (alive) failed(String(error.message ?? error)); return }
       if (!alive) return
+      seenEvents = status.fusion?.events?.length ?? 0
       if (!status.runtime?.installed) { onboarding(status); return }
+      if (status.fusion?.profileError) { failed(t('foreignProfile')); return }
       if (status.sidecar?.state !== 'running') show(h('p', { class: 'd2f-muted' }, t('starting')))
       try {
-        const { url } = await call('/space', { method: 'POST' })
+        const r = await call('/workbench', { method: 'POST' })
         if (!alive) return
-        if (!url) throw new Error('no url')
-        mountSurface(url)
+        if (r.incompatible) { incompatibleCard(r.incompatible, r.previous); return }
+        if (!r.url) throw new Error('no url')
+        mountSurface(r.url)
       } catch (error) {
         if (!alive) return
         let s = status
         try { s = await call('/status') } catch { /* 用旧状态 */ }
-        failed(s?.sidecar?.error ?? String(error.message ?? error), s)
+        if (s?.fusion?.incompatible) { incompatibleCard(s.fusion.incompatible, s.runtime?.previous); return }
+        failed(s?.fusion?.profileError ? t('foreignProfile') : (s?.sidecar?.error ?? String(error.message ?? error)))
       }
     }
 
-    // sidecar 重启后端口和登录 token 都会变：地址变了就重新嵌入；停了、挂了就换成对应的卡片
+    // 常驻 DSH 重启后端口和登录令牌都会变：地址变了就重新嵌入；停了、挂了就换成对应的卡片。
+    // 宿主替对话关掉重开了一场会话（交接内容变了）：网页界面里开着的那一场要重载才接得上。
     let checking = false
     const watch = setInterval(async () => {
       if (!alive || checking || (phase !== 'surface' && phase !== 'waiting')) return
@@ -477,30 +426,155 @@ ctx.registerView({
         const s = await call('/status')
         if (!alive || (phase !== 'surface' && phase !== 'waiting')) return
         const st = s.sidecar?.state
+        const events = s.fusion?.events ?? []
         if (st === 'running' && s.sidecar.base && s.sidecar.base !== mountedBase) await open()
-        else if (st === 'failed') failed(s.sidecar.error ?? t('failed'), s)
+        else if (s.fusion?.incompatible) incompatibleCard(s.fusion.incompatible, s.runtime?.previous)
+        else if (st === 'failed') failed(s.sidecar.error ?? t('failed'))
         else if (st === 'starting' && phase === 'surface') { phase = 'waiting'; show(h('p', { class: 'd2f-muted' }, t('restarting'))) }
         else if (st === 'stopped') {
-          phase = 'stopped' // 用户在管理页停的：不再盯，点「启动」再起
+          phase = 'stopped'
           show(h('div', { class: 'd2f-card' }, h('p', {}, t('stoppedNote')),
             h('div', { class: 'd2f-row' }, h('button', { class: 'd2f-btn primary', onclick: () => void open() }, t('start')))))
+        } else if (phase === 'surface' && events.length > seenEvents) {
+          const fresh = events.slice(seenEvents)
+          seenEvents = events.length
+          if (fresh.some(e => e.type === 'reopened')) surface?.reload()
         }
       } catch { /* 引擎一时不通：下一轮再看 */ } finally { checking = false }
     }, WATCH_MS)
+
+    // 装插件体检：工作台里 DSH 自己的插件页点了安装 → 桥停住 → 这里显示体检进度和报告 → 用户决定
+    let decided = new Set()
+    const renderReview = (items) => {
+      const live = items.filter(r => (r.state === 'checking' || r.state === 'ready') && !decided.has(r.id))
+      if (!live.length) { review.hidden = true; review.replaceChildren(); return }
+      const r = live[0]
+      if (review.dataset.id === r.id && review.dataset.state === r.state) return
+      review.dataset.id = r.id
+      review.dataset.state = r.state
+      review.hidden = false
+      if (r.state === 'checking') {
+        review.replaceChildren(h('p', { class: 'd2f-muted' }, t('reviewChecking', { spec: r.spec })))
+        return
+      }
+      const rep = r.report ?? {}
+      const name = rep.name ? `${rep.name}${rep.version ? ` ${rep.version}` : ''}` : r.spec
+      const decide = allow => async () => {
+        decided.add(r.id)
+        review.hidden = true
+        try { await call('/reviews/decide', { method: 'POST', body: { id: r.id, allow } }) }
+        catch (error) { ctx.notify?.(String(error.message ?? error), { level: 'error' }) }
+      }
+      const lines = []
+      if (r.error || rep.verdict === 'failed') lines.push(h('li', { class: 'd2f-error' }, t('reviewFailed', { reason: r.error ?? (rep.reasons ?? []).join('; ') })))
+      else if (rep.verdict === 'version-refused') lines.push(h('li', {}, t('reviewVersion')))
+      else {
+        if (rep.verdict === 'blocked') lines.push(h('li', { class: 'd2f-error' }, t('reviewBlocked')))
+        lines.push(h('li', {}, rep.tools?.length ? [t('reviewTools', { n: rep.tools.length }), ': ', h('code', {}, rep.tools.join(', '))] : t('reviewNoTools')))
+        const pc = rep.promptChars ?? 0
+        lines.push(h('li', {}, pc > 0 ? t('reviewPrompt', { n: pc }) : pc < 0 ? t('reviewPromptLess', { n: -pc }) : t('reviewPromptSame')))
+        lines.push(h('li', { class: rep.inactive?.length ? 'd2f-error' : '' }, rep.inactive?.length ? [t('reviewInactive'), ': ', h('code', {}, rep.inactive.join(' · '))] : t('reviewAllActive')))
+        lines.push(h('li', {}, rep.hosts?.length ? [t('reviewHosts'), ': ', h('code', {}, rep.hosts.join(', '))] : t('reviewNoHosts')))
+      }
+      review.replaceChildren(
+        h('h3', {}, t('reviewTitle', { name })),
+        h('ul', {}, ...lines),
+        h('p', { class: 'd2f-muted' }, t('reviewMeasured')),
+        h('p', { class: 'd2f-muted' }, t('reviewTimeout')),
+        h('div', { class: 'd2f-row' },
+          h('button', { class: 'd2f-btn', 'data-act': 'review-deny', onclick: decide(false) }, t('reviewDeny')),
+          h('button', { class: `d2f-btn ${rep.verdict === 'blocked' ? 'danger' : 'primary'}`, 'data-act': 'review-allow', onclick: decide(true) }, t('reviewAllow'))))
+    }
+    let reviewTimer = null
+    const pollReviews = async () => {
+      if (!alive) return
+      try { if (phase === 'surface') renderReview((await call('/reviews')).reviews ?? []) } catch { /* 下一轮再看 */ }
+      if (alive) reviewTimer = setTimeout(pollReviews, REVIEW_MS)
+    }
+    reviewTimer = setTimeout(pollReviews, REVIEW_MS)
 
     void open()
     return () => {
       alive = false
       clearInterval(watch)
+      clearTimeout(reviewTimer)
       modeObserver.disconnect()
       offLocale?.()
-      if (disposeSurface) disposeSurface()
+      dropSurface()
       root.remove()
     }
   },
 })
 
-// ── 管理面板（插件详情页）─────────────────────────────────────────────────
+// ── Harness 卡上的几行 + 对话右键菜单（宿主画，插件给数据）────────────────────────────────
+
+const openManage = () => {
+  if (ctx.app?.openSettings && ctx.registerSettingsView) ctx.app.openSettings('fplugin:dsh2forsion')
+  else ctx.openView?.('manage')
+}
+
+let harness = null
+const stateKey = s => {
+  if (!s.runtime?.installed) return ['stateMissing', 'neutral']
+  if (s.fusion?.incompatible) return ['stateIncompatible', 'danger']
+  return ({ running: ['stateRunning', 'ok'], starting: ['stateStarting', 'neutral'], stopped: ['stateStopped', 'neutral'], failed: ['stateFailed', 'danger'] })[s.sidecar?.state] ?? ['stateStopped', 'neutral']
+}
+
+async function harnessRows() {
+  const s = await call('/status')
+  let plugins = []
+  try { if (s.runtime?.installed && s.sidecar?.state === 'running') plugins = (await call('/plugins')).plugins ?? [] } catch { plugins = [] }
+  const [key, tone] = stateKey(s)
+  const refresh = () => harness?.refresh()
+  const runtime = {
+    id: 'runtime', label: both('rowRuntime'), text: both(key, { dsh: s.dshVersion }), tone,
+    actions: s.fusion?.incompatible
+      ? [{ id: 'runtime-previous', label: both('rollbackRuntime'), primary: true, disabled: !s.runtime?.previous, run: () => { void call('/runtime/previous', { method: 'POST' }).catch(e => ctx.notify?.(String(e.message ?? e), { level: 'error' })).finally(refresh) } }]
+      : [
+        { id: 'open-workbench', label: both('openWorkbench'), primary: true, run: openWorkbench },
+        ...(s.runtime?.installed ? [{ id: 'restart-dsh', label: both('restart'), run: () => { void call('/sidecar/restart', { method: 'POST' }).catch(e => ctx.notify?.(String(e.message ?? e), { level: 'error' })).finally(refresh) } }] : []),
+      ],
+    hint: s.fusion?.incompatible ? { zh: `${STRINGS.zh.incompatibleTitle}。${STRINGS.zh.incompatibleChat}${s.runtime?.previous ? '' : STRINGS.zh.noPrevious}`, en: `${STRINGS.en.incompatibleTitle}. ${STRINGS.en.incompatibleChat}${s.runtime?.previous ? '' : ` ${STRINGS.en.noPrevious}`}` } : undefined,
+  }
+  const channel = {
+    id: 'channel', label: both('rowChannel'),
+    select: {
+      value: s.settings?.updateChannel ?? 'pinned',
+      options: [{ value: 'pinned', label: both('channelPinned', { dsh: s.pinnedVersion }) }, { value: 'follow', label: both('channelFollow') }],
+      onChange: (value) => { void call('/channel/set', { method: 'POST', body: { updateChannel: value } }).catch(e => ctx.notify?.(String(e.message ?? e), { level: 'error' })).finally(refresh) },
+    },
+    hint: s.settings?.updateChannel === 'follow'
+      ? (s.channel?.published === false ? both('channelUnpublished', { dsh: s.dshVersion }) : s.channel?.latest ? both('channelLatest', { dsh: s.channel.latest }) : undefined)
+      : undefined,
+  }
+  const pluginsRow = {
+    id: 'dsh-plugins', label: both('rowPlugins'), text: plugins.length ? both('pluginsCount', { n: plugins.length }) : both('pluginsNone'),
+    actions: [{ id: 'manage-plugins', label: both('pluginsManage'), run: openWorkbench }],
+    hint: both('pluginsHint'),
+  }
+  return [runtime, channel, pluginsRow]
+}
+
+const holdThenOpen = async ({ sessionId }) => {
+  try {
+    const r = await call('/hold', { method: 'POST', body: { sessionId } })
+    if (r && r.ok === false) {
+      const key = r.code === 'no_engine_session' ? 'holdNoSession' : r.code === 'busy' || r.code === 'gone' ? 'holdBusy' : null
+      ctx.notify?.(key ? t(key) : t('holdFailed', { reason: r.detail ?? r.code }), { level: key ? 'info' : 'warning' })
+    }
+  } catch (error) { ctx.notify?.(t('holdFailed', { reason: String(error.message ?? error) }), { level: 'warning' }) }
+  openWorkbench()
+}
+
+if (ctx.registerEngineHarness) {
+  harness = ctx.registerEngineHarness({
+    engineId: ENGINE_ID,
+    rows: () => harnessRows(),
+    sessionActions: [{ id: 'open-in-workbench', label: both('openInWorkbench'), icon: 'boxes', run: (target) => { void holdThenOpen(target) } }],
+  })
+}
+
+// ── 运行时管理页（插件详情页）─────────────────────────────────────────────────
 
 function managePanel(el) {
   let alive = true
@@ -508,54 +582,23 @@ function managePanel(el) {
   withStyle(root)
   el.append(root)
   const result = h('div', { class: 'd2f-result' })
-  const input = h('input', { class: 'd2f-input', placeholder: t('installHint') })
-
-  const stateText = (s) => {
-    if (!s.runtime?.installed) return t('stateMissing')
-    return { running: t('stateRunning'), starting: t('stateStarting'), stopped: t('stateStopped'), failed: t('stateFailed') }[s.sidecar?.state] ?? s.sidecar?.state
-  }
 
   const act = async (fn) => {
     try { await fn() } catch (error) { result.replaceChildren(h('p', { class: 'd2f-error' }, String(error.message ?? error))) }
     if (alive) await render()
   }
 
-  const installResult = (r, spec) => {
-    const reasons = (r.reasons ?? []).length ? h('ul', {}, ...r.reasons.map(x => h('li', {}, x))) : null
-    const retryWith = (extra) => h('button', { class: 'd2f-btn', onclick: () => void runInstall(spec, extra) })
-    switch (r.status) {
-      case 'installed':
-        return [h('p', {}, r.verdict === 'partial' ? t('resultPartial', { name: r.name }) : t('resultInstalled', { name: r.name })), reasons]
-      case 'needs-confirm':
-        return [h('p', {}, t('resultNeedsConfirm', { name: r.name })), reasons, h('div', { class: 'd2f-row' }, Object.assign(retryWith({ confirm: true }), { textContent: t('confirmAnyway') }))]
-      case 'blocked':
-        return [h('p', { class: 'd2f-error' }, t('resultBlocked')), reasons, h('div', { class: 'd2f-row' }, Object.assign(retryWith({ force: true }), { textContent: t('forceAnyway'), className: 'd2f-btn danger' }))]
-      case 'version-refused':
-        return [h('p', {}, t('resultVersion', { name: r.name, dsh: lastStatus?.dshVersion ?? '' })), r.verified ? h('p', {}, t('resultVerified')) : null, h('pre', { class: 'd2f-log' }, r.message ?? ''), h('div', { class: 'd2f-row' }, Object.assign(retryWith({ acceptRisk: true }), { textContent: t('acceptRisk') }))]
-      default:
-        return [h('p', { class: 'd2f-error' }, t('resultFailed')), h('pre', { class: 'd2f-log' }, r.message ?? r.error ?? JSON.stringify(r))]
-    }
+  const resolveText = (v) => {
+    if (!v) return null
+    if (typeof v === 'string') return v
+    return v[lang()] ?? v.en ?? v.zh ?? Object.values(v)[0] ?? null
   }
 
-  const runInstall = async (spec, extra = {}) => {
-    if (!spec) return
-    result.replaceChildren(h('p', { class: 'd2f-muted' }, t('installTrial')))
-    try {
-      const r = await call('/plugins/install', { method: 'POST', body: { spec, ...extra } })
-      if (alive) result.replaceChildren(...installResult(r, spec).filter(Boolean))
-    } catch (error) {
-      if (alive) result.replaceChildren(h('p', { class: 'd2f-error' }, String(error.message ?? error)))
-    }
-    if (alive) await render()
-  }
-
-  let lastStatus = null
   const render = async () => {
-    let s, plugins = [], known = {}, logs = { lines: [], sidecar: [] }
+    let s, plugins = [], logs = { lines: [], sidecar: [] }
     try {
       s = await call('/status')
-      lastStatus = s
-      if (s.runtime?.installed) ({ plugins, known } = await call('/plugins'))
+      if (s.runtime?.installed && s.sidecar?.state === 'running') ({ plugins } = await call('/plugins'))
       logs = await call('/logs')
     } catch (error) {
       root.replaceChildren(h('p', { class: 'd2f-error' }, String(error.message ?? error)))
@@ -564,29 +607,29 @@ function managePanel(el) {
     }
     if (!alive) return
     const state = s.sidecar?.state
+    const [key] = stateKey(s)
     const runtime = h('section', { class: 'd2f-section' },
       h('h3', {}, t('sectionRuntime')),
-      h('p', { class: 'd2f-muted' }, `DSH ${s.dshVersion} · Node ${s.nodeVersion} · ${stateText(s)}${s.sidecar?.error ? ` · ${s.sidecar.error}` : ''}`),
+      h('p', {}, t(key, { dsh: s.dshVersion }) + (s.sidecar?.error ? ` · ${s.sidecar.error}` : '')),
+      h('p', { class: 'd2f-muted' }, t('versionsLine', { dsh: s.dshVersion, pinned: s.pinnedVersion, installed: (s.runtime?.installedVersions ?? []).join(', ') || '—' })),
+      h('p', { class: 'd2f-muted' }, t('homeLine', { home: s.fusion?.home ?? '', profile: s.fusion?.profile ?? '' })),
+      s.fusion?.incompatible ? h('p', { class: 'd2f-error' }, t('incompatibleBody', { dsh: s.fusion.incompatible.dshVersion, reason: s.fusion.incompatible.reason })) : null,
+      s.fusion?.profileError ? h('p', { class: 'd2f-error' }, t('foreignProfile')) : null,
+      s.fusion && s.fusion.resident === false ? h('p', { class: 'd2f-warn' }, t('oldHostResident')) : null,
       s.pluginJob ? h('p', { class: 'd2f-muted' }, t('busy', { job: s.pluginJob })) : null,
       h('div', { class: 'd2f-row' },
         s.runtime?.installed && state !== 'running' ? h('button', { class: 'd2f-btn primary', onclick: () => act(() => call('/sidecar/start', { method: 'POST' })) }, t('start')) : null,
         state === 'running' ? h('button', { class: 'd2f-btn', onclick: () => act(() => call('/sidecar/restart', { method: 'POST' })) }, t('restart')) : null,
         state === 'running' ? h('button', { class: 'd2f-btn', onclick: () => act(() => call('/sidecar/stop', { method: 'POST' })) }, t('stop')) : null,
-        h('button', { class: 'd2f-btn', onclick: () => ctx.openView?.('space') }, t('openSpace')),
+        h('button', { class: 'd2f-btn', onclick: () => openWorkbench() }, t('openWorkbench')),
+        h('button', { class: 'd2f-btn', onclick: () => act(() => call('/channel/check', { method: 'POST' })) }, t('checkChannel')),
+        h('button', { class: 'd2f-btn', disabled: !s.runtime?.previous, onclick: () => act(() => call('/runtime/previous', { method: 'POST' })) }, t('rollbackRuntime')),
         h('button', { class: 'd2f-btn', onclick: () => void render() }, t('refresh'))),
-      h('p', { class: 'd2f-muted' }, t('sandboxNote')))
-
-    const tools = h('section', { class: 'd2f-section' },
-      h('h3', {}, t('sectionTools')),
-      (s.tools ?? []).length
-        ? h('p', { class: 'd2f-muted' }, `${t('tangu', { tools: s.tools.length, sections: (s.promptSections ?? []).length })} ${s.tools.join(', ')}`)
-        : h('p', { class: 'd2f-muted' }, t('noTools')))
+      h('p', { class: 'd2f-muted' }, t('restartNote')))
 
     const badge = (p) => {
       if (p.error) return h('span', { class: 'd2f-badge bad' }, `${t('pluginError')}: ${p.error}`)
-      const k = p.known?.grade
-      const knownText = k === 'load-ok' ? t('knownOk') : k === 'yellow' ? t('knownPartial') : k === 'red' ? t('knownBad') : null
-      return h('span', { class: `d2f-badge${k === 'red' ? ' bad' : ''}` }, [p.enabled === false ? t('pluginOff') : p.enabled ? t('pluginOk') : '', knownText].filter(Boolean).join(' · '))
+      return h('span', { class: 'd2f-badge' }, p.enabled === false ? t('pluginOff') : p.enabled ? t('pluginOk') : '')
     }
     const list = h('section', { class: 'd2f-section' },
       h('h3', {}, t('sectionPlugins')),
@@ -599,27 +642,19 @@ function managePanel(el) {
           h('button', { class: 'd2f-btn danger', onclick: () => act(async () => { const r = await call('/plugins/remove', { method: 'POST', body: { name: p.name } }); result.replaceChildren(h('p', {}, r.status === 'removed' ? t('removed', { name: p.name }) : (r.message ?? r.status))) }) }, t('remove')))))
         : h('p', { class: 'd2f-muted' }, t('noPlugins')),
       h('div', { class: 'd2f-row' },
-        h('button', { class: 'd2f-btn', onclick: () => act(async () => { const r = await call('/plugins/rollback', { method: 'POST' }); result.replaceChildren(h('p', {}, r.status === 'rolled-back' ? t('rolledBack') : r.status === 'failed' ? `${t('rollbackFailed')} ${r.message ?? ''}` : t('nothingToRollBack'))) }) }, t('rollback'))))
-
-    const installBtn = h('button', { class: 'd2f-btn primary', onclick: () => void runInstall(input.value.trim()) }, t('install'))
-    if (!s.runtime?.installed || s.pluginJob) installBtn.disabled = true
-    const installer = h('section', { class: 'd2f-section' },
-      h('h3', {}, t('sectionInstall')),
-      h('div', { class: 'd2f-row' }, input, installBtn),
+        h('button', { class: 'd2f-btn', onclick: () => act(async () => { const r = await call('/plugins/rollback', { method: 'POST' }); result.replaceChildren(h('p', {}, r.status === 'rolled-back' ? t('rolledBack') : r.status === 'failed' ? `${t('rollbackFailed')} ${r.message ?? ''}` : t('nothingToRollBack'))) }) }, t('rollback'))),
       result)
+
+    const tools = h('section', { class: 'd2f-section' },
+      h('h3', {}, t('sectionTools')),
+      h('p', { class: 'd2f-muted' }, s.settings?.exposeTools && (s.tools ?? []).length ? t('toolsOn', { n: s.tools.length, list: s.tools.join(', ') }) : t('toolsOff')))
 
     const logBox = h('section', { class: 'd2f-section' },
       h('details', {}, h('summary', {}, t('sectionLogs')),
         h('pre', { class: 'd2f-log' }, [...(logs.lines ?? []), '', ...(logs.sidecar ?? []).slice(-60)].join('\n'))))
 
     const style = root.querySelector('style')
-    root.replaceChildren(style, runtime, tools, list, installer, logBox)
-  }
-
-  const resolveText = (v) => {
-    if (!v) return null
-    if (typeof v === 'string') return v
-    return v[lang()] ?? v.en ?? v.zh ?? Object.values(v)[0] ?? null
+    root.replaceChildren(style, runtime, list, tools, logBox)
   }
 
   void render()
@@ -635,15 +670,12 @@ if (ctx.registerSettingsView) {
 }
 
 ctx.registerCommand({
-  id: 'dsh2forsion-open-space',
+  id: 'dsh2forsion-open-workbench',
   title: () => t('cmdOpen'),
-  run: () => { ctx.openView?.('space') },
+  run: () => openWorkbench(),
 })
 ctx.registerCommand({
   id: 'dsh2forsion-manage',
   title: () => t('cmdManage'),
-  run: () => {
-    if (ctx.app?.openSettings && ctx.registerSettingsView) ctx.app.openSettings('fplugin:dsh2forsion')
-    else ctx.openView?.('manage')
-  },
+  run: () => openManage(),
 })

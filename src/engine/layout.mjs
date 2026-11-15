@@ -1,10 +1,12 @@
 // 运行时目录布局。根目录是引擎给本插件的数据目录（ctx.paths.dataDir）：
 //   node/<版本>/        官方 Node（SHASUMS256 校验）
 //   runtime/<DSH 版本>/ 钉死的 @deepseek-ai/dsh
-//   home/               sidecar 的 DSH_HOME（和用户自己的 ~/.dsh 完全分开）
+//   home/               v0.1 的隔离 DSH_HOME（不再使用，原样留着）
+//   融合组合在用户自己的 DSH 目录里：<DSH_HOME>/profiles/forsion（见 constants.mjs）
 //   trial/              装前试启动用的临时 DSH_HOME
 //   backups/<时刻>/     改 profile 之前的快照
 //   cache/              npm / pnpm 缓存
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { DSH_VERSION, NODE_VERSION, PROFILE } from './constants.mjs'
 
@@ -17,13 +19,22 @@ export function nodePlatform(platform = process.platform, arch = process.arch) {
   return null
 }
 
-export function layout(root, platform = process.platform) {
+/** 用户自己的 DSH 目录：$DSH_HOME 优先，缺省 ~/.dsh（和 Forsion 的 DSH 引擎同一个口径）。 */
+export function resolveDshHome(env = process.env) {
+  const own = typeof env.DSH_HOME === 'string' ? env.DSH_HOME.trim() : ''
+  if (own) return own
+  const home = (typeof env.HOME === 'string' && env.HOME.trim()) || (typeof env.USERPROFILE === 'string' && env.USERPROFILE.trim()) || homedir()
+  return join(home, '.dsh')
+}
+
+export function layout(root, platform = process.platform, { dshHome = join(root, 'home'), dshVersion = DSH_VERSION } = {}) {
   const win = platform === 'win32'
   const nodeDir = join(root, 'node', NODE_VERSION)
-  const runtimeDir = join(root, 'runtime', DSH_VERSION)
-  const home = join(root, 'home')
+  const runtimeDir = join(root, 'runtime', dshVersion)
+  const home = dshHome
   return {
     root,
+    dshVersion,
     nodeDir,
     nodeBin: win ? join(nodeDir, 'node.exe') : join(nodeDir, 'bin', 'node'),
     nodeBinDir: win ? nodeDir : join(nodeDir, 'bin'),

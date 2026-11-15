@@ -2,6 +2,7 @@
 // 兼容数据和钉死的 DSH 版本对得上、清单文案双语。
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -41,21 +42,26 @@ await it('plugin/ is the current build of src/', async () => {
   }
 })
 
-await it('versions agree across package.json, manifest, engine and space; bridge name matches', async () => {
+await it('versions agree across package.json, manifest, engine and channel; bridge name and version match', async () => {
   const pkg = await json(join(repo, 'package.json'))
   const manifest = await json(join(plugin, 'manifest.json'))
   const tp = await json(join(engine, 'tangu-plugin.json'))
   const enginePkg = await json(join(engine, 'package.json'))
-  const space = await json(join(plugin, 'spaces/dsh/space.json'))
-  for (const [label, v] of [['manifest', manifest.version], ['tangu-plugin.json', tp.version], ['engine package.json', enginePkg.version], ['space.json', space.version]]) {
+  const { PLUGIN_VERSION } = await import('../src/engine/channel.mjs')
+  for (const [label, v] of [['manifest', manifest.version], ['tangu-plugin.json', tp.version], ['engine package.json', enginePkg.version], ['channel.mjs PLUGIN_VERSION', PLUGIN_VERSION]]) {
     assert.equal(v, pkg.version, label)
   }
+  assert.ok(!existsSync(join(plugin, 'spaces')), 'tier 1 has no DSH Space: the workbench is a tab')
   assert.equal(manifest.id, PLUGIN_ID)
   assert.equal(tp.id, PLUGIN_ID)
   assert.equal(enginePkg.type, 'module')
   const bridge = await json(join(engine, 'dsh-bridge/package.json'))
   assert.equal(bridge.name, BRIDGE_PACKAGE)
   assert.equal(bridge.dsh?.bundle?.patch, './cordis.patch.yml')
+  assert.equal(bridge.dsh?.client, undefined, 'the bridge adds nothing to the DSH web interface')
+  const bridgeSrc = await readFile(join(engine, 'dsh-bridge/index.js'), 'utf8')
+  assert.equal(/BRIDGE_VERSION = '([^']+)'/.exec(bridgeSrc)?.[1], bridge.version, 'bridge index.js BRIDGE_VERSION')
+  assert.ok(existsSync(join(engine, 'dsh-bridge/trial-net-hook.mjs')), 'trial network hook ships with the bridge')
 })
 
 await it('the engine bundle imports only Node built-ins', async () => {
