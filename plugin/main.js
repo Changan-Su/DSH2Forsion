@@ -7,6 +7,7 @@ const ENGINE_ID = 'dsh'
 // 工作台盯常驻 DSH 的间隔：重启后端口和登录令牌都会变，旧页面就死了
 const WATCH_MS = 2000
 const REVIEW_MS = 1000
+const SETTLE_MS = 1500
 
 const STRINGS = {
   zh: {
@@ -236,6 +237,7 @@ const CSS = `
 .d2f-badge { font-size: 11.5px; color: var(--text-muted); }
 .d2f-badge.bad { color: var(--danger); }
 .d2f-review { position: absolute; right: 16px; bottom: 16px; width: min(420px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; display: grid; gap: 10px; padding: 14px 16px; border-radius: var(--radius-lg, 10px); border: 1px solid var(--border); background: var(--surface-overlay, var(--bg)); box-shadow: var(--shadow-overlay, 0 8px 28px rgba(0,0,0,.18)); z-index: 2; }
+.d2f-review[hidden] { display: none; }
 .d2f-review h3 { margin: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .d2f-review ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .d2f-review code { font: 11.5px/1.45 var(--font-mono); overflow-wrap: anywhere; }
@@ -276,6 +278,23 @@ function hostAppearance() {
 
 const openWorkbench = () => ctx.openView?.('workbench', { location: 'main' })
 
+// 工作台落点：右键「在 DSH 工作台里打开」拿到 DSH 那边的会话 id 后，让工作台落到这一场。
+// 地址 # 后面带 d2f-session=<id>&n=<序号>，由桥的网页端小模块（dsh-bridge/client.js）读到后调 DSH 自己的 openSession。
+let landing = null
+let landSeq = 0
+const landers = new Set()
+const landingHash = (l) => `#d2f-session=${encodeURIComponent(l.id)}&n=${l.n}`
+const landOn = (id) => {
+  landing = { id, n: ++landSeq, at: Date.now() }
+  for (const land of landers) land()
+}
+// 一分钟内没用上（工作台没开成）就作废，免得下次随手打开工作台时跳到很早以前点过的那一场
+const takeLanding = () => {
+  const l = landing
+  landing = null
+  return l && Date.now() - l.at < 60_000 ? l : null
+}
+
 // ── DSH 工作台：主区页签，里面是常驻那个 DSH 自己的网页界面（不换肤、不藏元素）。关掉页签不停 DSH。──────────
 
 ctx.registerView({
@@ -296,7 +315,8 @@ ctx.registerView({
     let phase = 'loading'
     let mountedBase = null
     let seenEvents = 0
-    const dropSurface = () => { if (surface) { surface.dispose(); surface = null } mountedBase = null }
+    let mountedUrl = null
+    const dropSurface = () => { if (surface) { surface.dispose(); surface = null } mountedBase = null; mountedUrl = null }
     const show = (...nodes) => { dropSurface(); body.replaceChildren(h('div', { class: 'd2f-center' }, ...nodes)) }
 
     const syncAppearance = () => { void call('/appearance', { method: 'POST', body: hostAppearance() }).catch(() => {}) }
@@ -307,20 +327,23 @@ ctx.registerView({
     const mountSurface = (url) => {
       dropSurface()
       body.replaceChildren()
+      const first = takeLanding()
+      const src = first ? url + landingHash(first) : url
       // 受控网页容器（宿主管分区、导航只许回环、权限、销毁）。不能用 iframe：DSH 的登录 cookie 是 SameSite=Strict。
       if (ctx.ui?.mountWebSurface) {
-        const handle = ctx.ui.mountWebSurface(body, { url, partition: 'workbench', onLoadFail: () => { if (alive && phase === 'surface') void open() } })
-        surface = { dispose: () => handle?.dispose?.(), reload: () => handle?.reload?.() }
+        const handle = ctx.ui.mountWebSurface(body, { url: src, partition: 'workbench', onLoadFail: () => { if (alive && phase === 'surface') void open() } })
+        surface = { dispose: () => handle?.dispose?.(), reload: () => handle?.reload?.(), navigate: (u) => handle?.navigate?.(u), focus: () => handle?.focus?.() }
       } else {
         // 旧宿主：裸 <webview>（宿主会把它钉在内置浏览器的分区里）
         const wv = document.createElement('webview')
         wv.setAttribute('partition', 'persist:dsh2forsion')
-        wv.setAttribute('src', url)
+        wv.setAttribute('src', src)
         body.append(wv)
-        surface = { dispose: () => wv.remove(), reload: () => wv.reload?.() }
+        surface = { dispose: () => wv.remove(), reload: () => wv.reload?.(), navigate: (u) => wv.setAttribute('src', u), focus: () => wv.focus?.() }
       }
       phase = 'surface'
       mountedBase = new URL(url).origin
+      mountedUrl = url
       syncAppearance()
     }
 
@@ -493,9 +516,19 @@ ctx.registerView({
     }
     reviewTimer = setTimeout(pollReviews, REVIEW_MS)
 
+    // 已经开着的工作台：只换地址 # 那段（同一个页面里跳，不重载）；还没嵌好页面的，等 mountSurface 带上
+    const land = () => {
+      if (phase !== 'surface' || !surface?.navigate || !mountedUrl || !landing) return
+      const l = takeLanding()
+      if (l) surface.navigate(mountedUrl + landingHash(l))
+      surface.focus?.()
+    }
+    landers.add(land)
+
     void open()
     return () => {
       alive = false
+      landers.delete(land)
       clearInterval(watch)
       clearTimeout(reviewTimer)
       modeObserver.disconnect()
@@ -520,8 +553,16 @@ const stateKey = s => {
   return ({ running: ['stateRunning', 'ok'], starting: ['stateStarting', 'neutral'], stopped: ['stateStopped', 'neutral'], failed: ['stateFailed', 'danger'] })[s.sidecar?.state] ?? ['stateStopped', 'neutral']
 }
 
+// 宿主只在画卡片时取一次行数据：还在过渡（正在启动、正在下载）就过一会儿再让它取一次，直到稳定下来
+let settleTimer = null
+const settleLater = () => {
+  if (settleTimer) return
+  settleTimer = setTimeout(() => { settleTimer = null; harness?.refresh() }, SETTLE_MS)
+}
+
 async function harnessRows() {
   const s = await call('/status')
+  if (s.sidecar?.state === 'starting' || s.job?.running) settleLater()
   let plugins = []
   try { if (s.runtime?.installed && s.sidecar?.state === 'running') plugins = (await call('/plugins')).plugins ?? [] } catch { plugins = [] }
   const [key, tone] = stateKey(s)
@@ -558,6 +599,7 @@ async function harnessRows() {
 const holdThenOpen = async ({ sessionId }) => {
   try {
     const r = await call('/hold', { method: 'POST', body: { sessionId } })
+    if (r?.ok === true && r.engineSessionId) landOn(String(r.engineSessionId))
     if (r && r.ok === false) {
       const key = r.code === 'no_engine_session' ? 'holdNoSession' : r.code === 'busy' || r.code === 'gone' ? 'holdBusy' : null
       ctx.notify?.(key ? t(key) : t('holdFailed', { reason: r.detail ?? r.code }), { level: key ? 'info' : 'warning' })

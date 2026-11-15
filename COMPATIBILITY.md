@@ -1,6 +1,17 @@
 # 兼容性 / Compatibility
 
-钉死 DSH `0.2.1-rc.2`。数据来自 M0 兼容矩阵（2026-10-18，Linux x64），原始结果在 [`spike/m0/results/2026-10-18/`](spike/m0/results/2026-10-18/)，随包发的评级在 [`compat/known.json`](compat/known.json)。
+0.2.0 起钉死 DSH `0.2.2-rc.3`。下面的 M0 矩阵是在 `0.2.1-rc.2` 上跑的，没在 0.2.2-rc.3 上重跑；0.2.0 的装前体检只在评级对应的 DSH 版本上才参考它（`known.json` 的 `matrixDsh`），其余一律看那次实测。
+
+0.2.0 在融合组合上实跑（官方 DSH 0.2.2-rc.3、全新隔离目录、本机假模型，`npm run test:fusion`，2026-11-15）：
+
+| 插件 | 装前体检报告 | 装上后 |
+|---|---|---|
+| `dsh-genui@0.3.3` | 0 个工具；提示词 +57,982 字（`genui:cards` 一节）；各部分都启动；启动时没有外连 | 热加载，DSH 没重启，开着的会话还在 |
+| `dsh-free-search@0.9.48` | 9 个工具；提示词 +2,003 字（`free-search:engines`）；各部分都启动；启动时连了 `www.cloudflare.com` | 同上 |
+
+拒绝时插件没有进组合（负对照）。`@michengai/dsh-skills-manager@1.4.6` 还没在融合组合上跑。
+
+v0.1：钉死 DSH `0.2.1-rc.2`。数据来自 M0 兼容矩阵（2026-10-18，Linux x64），原始结果在 [`spike/m0/results/2026-10-18/`](spike/m0/results/2026-10-18/)，随包发的评级在 [`compat/known.json`](compat/known.json)。
 
 ## 评级口径
 

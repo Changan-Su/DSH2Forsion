@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 未发布 / Unreleased
+
+第 1 档（DSH 工作台）。钉死 DSH `0.2.2-rc.3`。需要 Changan-Su/Forsion#697 的宿主接缝（未发布）。
+
+- **常驻一个两头都开的 DSH**：官方包加一份组合（网页界面 + 对话入口在同一个进程），放在你自己的 DSH 目录里、名叫 `forsion`。替 Forsion 的 DSH 引擎登记成常驻进程：和 DSH 这个 Agent 的对话改连它，不再每轮起一个。只写自己那份组合；同名组合不是本插件建的就不碰；DSH 目录顶层的 `cordis.patch.yml` 只读。启动令牌不落盘、不进日志。
+- **DSH 工作台**：主区页签，里面原样是 DSH 的网页界面（宿主的受控网页容器）。从 DSH Agent 的 Harness 卡和对话右键菜单「在 DSH 工作台里打开」进（右键进的直接落在那场对话上：桥带一个只做导航的网页端小模块，调 DSH 自己的 `openSession`）；关页签不停 DSH。Harness 卡上加三行：运行时、更新通道、DSH 插件。
+- **装前体检**：在工作台里用 DSH 自己的插件页装插件时，先停住，在临时目录里装前、装后各试启动一次，报告加了几个工具、提示词多了多少字、有没有没启动的部分、启动时连了哪些外部主机（实测），你点「装」才装。
+- **跟版通道**：CI 每天看上游、生成锁、全新装、自检、出带校验值的运行时清单（发布那一步先关着）。客户端只装验过的清单、旧版留着；融合自检不过时工作台停用、显示「等插件更新」，给「先退回上一版 DSH」（没有验过的旧版时不可点），对话退回每轮起一个 DSH 并照实提示。
+- DSH 插件工具进 Tangu 缺省关。停用：DSH Space、TaskBoard / Skills Manager / Git Graph 三个打补丁的面板、DSH 模型进 Tangu 模型列表。桥 0.2.0：工具调用用 0.2.2 的批量接口。
+- Tier 1: one resident DSH with the web interface and ACP in one process (own profile `forsion` in your DSH folder) that DSH chats connect to; the DSH workbench tab; Harness rows and a right-click item; an install review measured before and after in a scratch folder; a follow-version channel (publishing off) with going back to an earlier verified DSH. DSH plugin tools in Tangu are off by default; the DSH Space, the three patched panels and DSH model sources are stopped.
+
+## Unreleased (0.1.x)
 
 - DSH 管理目录技能通过新宿主 `registerSkillProvider` 接入 Tangu 原生列表与 `use_skill`；带独立命名空间与只读来源信息，停用、删除和源调用策略立即生效。需要 Genesis 配套接口，尚未发布。
 - Managed DSH skills now use the host's native skill catalog and `use_skill`, with namespaced identities, read-only source ownership, and live disable/delete policy. Requires the companion Genesis host API, not yet released. Real-model scenarios are in `SCENARIOS.md`.

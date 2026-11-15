@@ -58,7 +58,12 @@ await it('versions agree across package.json, manifest, engine and channel; brid
   const bridge = await json(join(engine, 'dsh-bridge/package.json'))
   assert.equal(bridge.name, BRIDGE_PACKAGE)
   assert.equal(bridge.dsh?.bundle?.patch, './cordis.patch.yml')
-  assert.equal(bridge.dsh?.client, undefined, 'the bridge adds nothing to the DSH web interface')
+  // 网页端只有一个落点小模块：只导航（uiWorkspace.openSession），不往 DSH 界面里加东西（不注入 slots）
+  assert.equal(bridge.dsh?.client?.platform, 'web')
+  assert.equal(bridge.exports?.['./client'], './client.js')
+  const clientSrc = await readFile(join(engine, 'dsh-bridge/client.js'), 'utf8')
+  assert.ok(clientSrc.includes("inject: ['uiWorkspace', 'sessions']"), 'the client only needs navigation services')
+  assert.ok(!/slots|createElement|<style|\.css/.test(clientSrc), 'the client adds nothing to the DSH web interface')
   const bridgeSrc = await readFile(join(engine, 'dsh-bridge/index.js'), 'utf8')
   assert.equal(/BRIDGE_VERSION = '([^']+)'/.exec(bridgeSrc)?.[1], bridge.version, 'bridge index.js BRIDGE_VERSION')
   assert.ok(existsSync(join(engine, 'dsh-bridge/trial-net-hook.mjs')), 'trial network hook ships with the bridge')

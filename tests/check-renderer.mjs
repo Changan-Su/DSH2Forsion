@@ -53,7 +53,7 @@ function setup({ locale = 'zh', routes = {}, withSurface = false, tangu = {}, ha
   if (harness) ctx.registerEngineHarness = def => { reg.harness = def; return { refresh: () => { reg.refreshed++ }, dispose() {} } }
   if (withSurface) ctx.ui = { mountWebSurface: (el, o) => {
     const d = document.createElement('div'); d.className = 'surface'; d.dataset.url = o.url; d.dataset.partition = o.partition; el.append(d)
-    const handle = { reloads: 0, opts: o, reload() { handle.reloads++ }, dispose() { d.remove() }, navigate() {}, focus() {} }
+    const handle = { reloads: 0, navigated: [], opts: o, reload() { handle.reloads++ }, dispose() { d.remove() }, navigate(u) { handle.navigated.push(u) }, focus() {} }
     reg.surfaces.push(handle)
     return handle
   } }
@@ -203,6 +203,19 @@ await it('harness rows: runtime with open / restart, the update channel select, 
   assert.deepEqual(rows[2].text, { zh: '1 个', en: '1' })
 })
 
+await it('harness rows while DSH is starting ask the host to read them again until DSH is up', async () => {
+  let state = 'starting'
+  const { reg } = setup({ routes: { '/status': () => status({ sidecar: { state, base: 'http://127.0.0.1:4100' } }), '/plugins': { plugins: [] } } })
+  const first = await reg.harness.rows({ agentSlug: 'dsh-mate' })
+  assert.deepEqual(first[0].text, { zh: 'DSH 0.2.2-rc.3 · 正在启动', en: 'DSH 0.2.2-rc.3 · starting' })
+  await until(() => reg.refreshed === 1, 4000)
+  state = 'running'
+  const second = await reg.harness.rows({ agentSlug: 'dsh-mate' })
+  assert.equal(second[0].tone, 'ok')
+  await new Promise(r => setTimeout(r, 2000))
+  assert.equal(reg.refreshed, 1, 'no more re-reads once DSH is running')
+})
+
 await it('harness rows when DSH does not match the plugin: danger text and a disabled go-back without an earlier version', async () => {
   const inc = { dshVersion: '0.2.3', reason: 'x' }
   const { reg } = setup({ routes: { '/status': status({ fusion: { ...status().fusion, incompatible: inc } }) } })
@@ -226,6 +239,36 @@ await it('right-click "open in the workbench": holds the conversation first, the
   reg.harness.sessionActions[0].run({ sessionId: 's2' })
   await until(() => reg.notes.length === 1)
   assert.match(reg.notes[0].message, /还没在 DSH 上跑过/)
+})
+
+await it('the workbench lands on the held conversation: on first mount through the address, when already open by changing only the # part', async () => {
+  const routes = {
+    '/status': () => status(),
+    'POST /workbench': { url: 'http://127.0.0.1:4100/?token=abc', base: 'http://127.0.0.1:4100' },
+    'POST /appearance': { ok: true },
+    '/reviews': { reviews: [] },
+    'POST /hold': () => ({ ok: true, engineSessionId: 'dsh-sess/1', state: 'open' }),
+  }
+  const { reg, calls } = setup({ withSurface: true, routes })
+  // 工作台还没开：落点跟着第一次挂载的地址走
+  reg.harness.sessionActions[0].run({ sessionId: 's1' })
+  await until(() => calls.some(c => c.openView === 'workbench'))
+  const el = document.createElement('div')
+  const dispose = reg.views.workbench.mount(el)
+  const surface = await until(() => el.querySelector('.surface'), 6000)
+  assert.equal(surface.dataset.url, 'http://127.0.0.1:4100/?token=abc#d2f-session=dsh-sess%2F1&n=1')
+  // 已经开着：同一个页面里只换 # 那段，不重新挂载
+  reg.harness.sessionActions[0].run({ sessionId: 's1' })
+  await until(() => reg.surfaces[0].navigated.length === 1)
+  assert.equal(reg.surfaces[0].navigated[0], 'http://127.0.0.1:4100/?token=abc#d2f-session=dsh-sess%2F1&n=2')
+  assert.equal(reg.surfaces.length, 1)
+  // 没有落点的普通打开：地址里不带 #
+  dispose()
+  const el2 = document.createElement('div')
+  const dispose2 = reg.views.workbench.mount(el2)
+  const plain = await until(() => el2.querySelector('.surface'), 6000)
+  assert.equal(plain.dataset.url, 'http://127.0.0.1:4100/?token=abc')
+  dispose2()
 })
 
 await it('runtime page: versions, DSH folder, no install box (installs happen in the workbench), plugin list with uninstall; old hosts are told chats are not connected', async () => {

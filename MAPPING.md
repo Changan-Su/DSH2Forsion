@@ -1,8 +1,28 @@
 # DSH → Forsion 映射 / Mapping
 
-目标是 DSH Agent 级能力与 Tangu、WebUI 级内容与 Forsion 无缝兼容。后台复用 DSH 运行时只是实现手段；整页嵌入、另建 DSH 会话或另外登录不构成目标达成。下表区分当前实现与目标缺口。钉死版本：DSH `0.2.1-rc.2`。
+目标是 DSH Agent 级能力与 Tangu、WebUI 级内容与 Forsion 无缝兼容。后台复用 DSH 运行时只是实现手段；整页嵌入、另建 DSH 会话或另外登录不构成目标达成。下表区分当前实现与目标缺口。钉死版本：DSH `0.2.2-rc.3`（0.2.0 起）。
 
 The goal is native use of DSH agent capabilities in Tangu and WebUI contributions in Forsion. Reusing the DSH runtime is an implementation choice. Whole-page embedding and separate DSH sessions/accounts do not meet that goal.
+
+## 0.2.0：第 1 档（融合）
+
+| DSH 概念 | DSH 里的入口 | 在 Forsion 里 | 0.2.0 |
+|---|---|---|---|
+| 运行形态 | `dsh --profile <组合>`；网页界面与对话入口（ACP）是两份官方 bundle | 一份组合同时带 `dsh-base`、`dsh-web-app`、`dsh-acp-app`（网页界面的启动项写在组合配置里：不弹浏览器、只听 127.0.0.1 随机端口），常驻一个进程 | ✅ |
+| DSH 目录 | `$DSH_HOME`（缺省 `~/.dsh`） | 用用户自己的，组合名 `forsion`；会话、登录、技能与用户自己的 DSH 是同一批 | ✅ |
+| 对话 | ACP `session/new` / `resume` / `prompt` | Forsion 的 DSH 引擎经宿主「常驻引擎」接缝连这个进程的 stdio；网页界面开着同一场会话也接得上 | ✅（宿主 #697） |
+| 网页界面 | `dsh web` 页面，令牌换 Cookie | 「DSH 工作台」页签，宿主受控网页容器（本机回环、插件自己的分区、同源导航）；不换肤、不藏元素 | ✅（宿主 #697；旧宿主退回 `<webview>`） |
+| 选中会话 | 客户端 `uiWorkspace.openSession` | 右键「在 DSH 工作台里打开」：宿主先把这场在常驻进程里开着，工作台地址带 `#d2f-session=<id>`，桥的网页端小模块读到后调 `openSession`（只导航） | ✅ |
+| 组合里关掉的基础工具 | 网页界面那份接线按「预设」逐会话挂 | 组合里全局重新打开（agent-instructions、tool-fs、tool-bash、tool-subagent 等 20 行） | ✅ |
+| 插件安装 | 插件页 → `pluginManager.installBundle` | 桥包住它（只拦插件页发起的安装，不拦升级时的装回）；引擎半身装前 / 装后各试启动一次，报告工具、提示词字数、没启动的部分、实测外连主机；用户放行才装；装上后热加载，不重启 DSH | ✅ |
+| DSH 自己的审批 | `approval/request`（网页界面的监听先接走） | **未接**：同一进程里网页界面的监听把审批接走，对话入口收不到（实测）；怎么接待定，属第 2 档 | ⛔ |
+| 版本 | `@deepseek-ai/dsh` 的发布标签 | 跟版通道：CI 自检、带校验值的清单（发布先关）；客户端只装验过的，旧版留着、可退回 | ✅（发布未开） |
+| 主题、语言 | `ui-theme` / `locale` 设置 | 跟着 Forsion（桥写进 DSH 设置） | ✅ |
+| 已停 | — | DSH Space、三个打补丁的面板、DSH 模型来源；DSH 插件工具进 Tangu 缺省关 | 停 |
+
+## v0.1（下表）
+
+0.2.0 起标「停」的几行不再接通，代码留作第 3 档原生重做的参考。
 
 | DSH 概念 | DSH 里的入口 | 在 Forsion 里 | v0.1 状态 |
 |---|---|---|---|
