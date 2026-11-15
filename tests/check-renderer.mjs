@@ -222,6 +222,41 @@ await it('harness rows while DSH is starting ask the host to read them again unt
   assert.equal(reg.refreshed, 1, 'no more re-reads once DSH is running')
 })
 
+await it('the plugin row follows installs made in the workbench: a changed plugin list asks the host to read the rows again', async () => {
+  let key = ''
+  const routes = {
+    '/status': () => status({ plugins: { key } }),
+    '/plugins': () => ({ plugins: key ? [{ name: 'dsh-genui', version: '0.3.3', enabled: true }] : [] }),
+    'POST /workbench': { url: 'http://127.0.0.1:4100/?token=abc', base: 'http://127.0.0.1:4100' },
+    'POST /appearance': { ok: true }, '/reviews': { reviews: [] },
+  }
+  const { reg } = setup({ withSurface: true, routes })
+  const before = await reg.harness.rows({ agentSlug: 'dsh-mate' })
+  assert.deepEqual(before[2].text, { zh: '还没装', en: 'None yet' })
+  const el = document.createElement('div')
+  const dispose = reg.views.workbench.mount(el)
+  await until(() => el.querySelector('.surface'), 6000)
+  await tick(2500)
+  assert.equal(reg.refreshed, 0, 'nothing changed, nothing to re-read')
+  key = 'dsh-genui@0.3.3'
+  await until(() => reg.refreshed === 1, 5000)
+  const after = await reg.harness.rows({ agentSlug: 'dsh-mate' })
+  assert.deepEqual(after[2].text, { zh: '1 个', en: '1' })
+  dispose()
+})
+
+await it('a Harness card read that sees the plugin list changed asks the host to re-read every card (no workbench open)', async () => {
+  let key = ''
+  const { reg } = setup({ routes: { '/status': () => status({ plugins: { key } }), '/plugins': () => ({ plugins: key ? [{ name: 'dsh-genui', version: '0.3.3', enabled: true }] : [] }) } })
+  await reg.harness.rows({ agentSlug: 'a' })
+  key = 'dsh-genui@0.3.3'
+  const fresh = await reg.harness.rows({ agentSlug: 'b' })
+  assert.deepEqual(fresh[2].text, { zh: '1 个', en: '1' })
+  assert.equal(reg.refreshed, 1, 'the other card is re-read too')
+  await reg.harness.rows({ agentSlug: 'a' })
+  assert.equal(reg.refreshed, 1, 'no further re-reads once it settles')
+})
+
 await it('harness rows when DSH does not match the plugin: danger text and a disabled go-back without an earlier version', async () => {
   const inc = { dshVersion: '0.2.3', reason: 'x' }
   const { reg } = setup({ routes: { '/status': status({ fusion: { ...status().fusion, incompatible: inc } }) } })
@@ -292,39 +327,92 @@ await it('a newer right-click whose hold fails drops the earlier, unused landing
   dispose()
 })
 
-await it('bridge web module: lands once the conversation shows up; busy session lists do not push the fallback back', async () => {
+// 照 DSH 的样子加载桥的网页端小模块：openSession 把「当前会话」写进 localStorage（DSH 的 uiWorkspace 就存在那里）
+async function loadClient({ url = 'http://127.0.0.1:4100/', saved = null } = {}) {
   const clientSrc = await readFile(join(repo, 'src/dsh-bridge/client.js'), 'utf8')
-  const window = new Window({ url: 'http://127.0.0.1:4100/?token=abc' })
+  const window = new Window({ url })
   let mod = null
   const subs = new Set()
-  let byId = {}
-  const opened = []
+  const state = { byId: {}, opened: [] }
+  const setCurrent = (id) => window.localStorage.setItem('dsh.sessions.current', JSON.stringify({ sessionId: id }))
+  if (saved) setCurrent(saved) // 页面载入时 DSH 存着的上次那场
   window.__ModuleLoader__ = { load: (m) => { mod = m } }
-  const run = new window.Function('window', 'globalThis', 'location', 'history', clientSrc)
-  run(window, window, window.location, window.history)
+  new window.Function('window', 'globalThis', 'location', 'history', 'localStorage', clientSrc)(window, window, window.location, window.history, window.localStorage)
   const def = mod.factory()
   assert.equal([...def.inject].join(','), 'uiWorkspace,sessions')
   const cleanups = []
   def.apply({
-    uiWorkspace: { openSession: (id) => opened.push(id) },
-    sessions: { list: { getSnapshot: () => ({ byId }), subscribe: (f) => { subs.add(f); return () => subs.delete(f) } } },
+    uiWorkspace: { openSession: (id) => { state.opened.push(id); setCurrent(id) } },
+    sessions: { list: { getSnapshot: () => ({ byId: state.byId }), subscribe: (f) => { subs.add(f); return () => subs.delete(f) } } },
     effect: (f) => { cleanups.push(f()) },
   })
+  const notify = () => { for (const f of subs) f() }
+  const close = async () => { for (const c of cleanups) c?.(); await window.happyDOM.close() }
+  return { window, state, setCurrent, notify, close }
+}
+
+await it('bridge web module: lands once the conversation shows up; busy session lists do not push the fallback back', async () => {
+  const { window, state, notify, close } = await loadClient()
   // 列表里已经有这一场：马上落过去，并把 # 那段从地址里拿掉
-  byId = { s1: {} }
+  state.byId = { s1: {} }
   window.location.hash = '#d2f-session=s1&n=1'
-  await until(() => opened.length === 1)
-  assert.equal(opened[0], 's1')
+  await until(() => state.opened.length === 1)
+  assert.equal(state.opened[0], 's1')
   assert.equal(window.location.hash, '')
   // 列表还没有这一场：别的会话一直在更新，也在约 4 秒时直接开（不被一次次往后推）
   window.location.hash = '#d2f-session=s2&n=2'
   const t0 = Date.now()
-  const noise = setInterval(() => { for (const f of subs) f() }, 300)
-  try { await until(() => opened.length === 2, 7000) } finally { clearInterval(noise) }
-  assert.equal(opened[1], 's2')
+  const noise = setInterval(notify, 300)
+  try { await until(() => state.opened.length === 2, 7000) } finally { clearInterval(noise) }
+  assert.equal(state.opened[1], 's2')
   assert.ok(Date.now() - t0 < 5500, `fallback fired after ${Date.now() - t0} ms`)
-  for (const c of cleanups) c?.()
-  await window.happyDOM.close()
+  await tick(3300)
+  assert.equal(state.opened.length, 2, 'a landing that stuck is not opened again')
+  await close()
+})
+
+await it('bridge web module: when DSH restores its last session over the landing, it opens the landing again; a session the user picks is left alone', async () => {
+  const { window, state, setCurrent, close } = await loadClient({ saved: 'A' })
+  state.byId = { A: {}, B: {}, C: {} }
+  // DSH 启动时把存着的 A 恢复出来，晚于落点
+  window.location.hash = '#d2f-session=B&n=1'
+  await until(() => state.opened.length === 1)
+  setCurrent('A')
+  await until(() => state.opened.length === 2, 2000)
+  assert.equal(state.opened[1], 'B')
+  assert.equal(JSON.parse(window.localStorage.getItem('dsh.sessions.current')).sessionId, 'B')
+  // 落上之后用户自己点到 C：不再拉回 B
+  window.location.hash = '#d2f-session=B&n=2'
+  await until(() => state.opened.length === 3)
+  setCurrent('C')
+  await tick(3300)
+  assert.equal(state.opened.length, 3)
+  assert.equal(JSON.parse(window.localStorage.getItem('dsh.sessions.current')).sessionId, 'C')
+  await close()
+})
+
+await it('bridge web module: after the landing stuck, the user going back to the earlier session is not pulled back; two quick landings keep the startup baseline', async () => {
+  // 落上 B 之后用户自己点回 A（正是载入时那场）：不拉回 B
+  const one = await loadClient({ saved: 'A' })
+  one.state.byId = { A: {}, B: {} }
+  one.window.location.hash = '#d2f-session=B&n=1'
+  await until(() => one.state.opened.length === 1)
+  await tick(800)
+  one.setCurrent('A')
+  await tick(2800)
+  assert.equal(one.state.opened.length, 1)
+  await one.close()
+  // 载入后很快连落两次（先 C 再 B），之后 DSH 恢复出 A：仍按载入时的 A 判断，把 B 开回来
+  const two = await loadClient({ saved: 'A' })
+  two.state.byId = { A: {}, B: {}, C: {} }
+  two.window.location.hash = '#d2f-session=C&n=1'
+  await until(() => two.state.opened.length === 1)
+  two.window.location.hash = '#d2f-session=B&n=2'
+  await until(() => two.state.opened.length === 2)
+  two.setCurrent('A')
+  await until(() => two.state.opened.length === 3, 2000)
+  assert.equal(two.state.opened[2], 'B')
+  await two.close()
 })
 
 await it('the workbench lands on the held conversation: on first mount through the address, when already open by changing only the # part', async () => {

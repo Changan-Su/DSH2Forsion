@@ -1698,6 +1698,8 @@ function createPlugin() {
         tools: tools.schemas.map((t) => t.name),
         promptSections: tools.sections.map((s) => s.name),
         pluginJob: plugins.busy,
+        // 用户装的 DSH 插件清单的指纹(名字@版本):界面据此知道清单变了,让宿主重取 Harness 卡上的行
+        plugins: { key: (await userPlugins(paths.home)).map((p) => `${p.name}@${p.version}`).sort().join(",") },
         reviews: reviews.list().filter((r) => r.state === "checking" || r.state === "ready").length,
         settings: settings(),
         nativeSkills: { supported: typeof ctx.registerSkillProvider === "function" }

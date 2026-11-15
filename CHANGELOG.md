@@ -8,7 +8,7 @@
 - **DSH 工作台**：主区页签，里面原样是 DSH 的网页界面（宿主的受控网页容器）。从 DSH Agent 的 Harness 卡和对话右键菜单「在 DSH 工作台里打开」进（右键进的直接落在那场对话上：桥带一个只做导航的网页端小模块，调 DSH 自己的 `openSession`）；关页签不停 DSH。Harness 卡上加三行：运行时、更新通道、DSH 插件。
 - **装前体检**：在工作台里用 DSH 自己的插件页装插件时，先停住，在临时目录里装前、装后各试启动一次，报告加了几个工具、提示词多了多少字、有没有没启动的部分、启动时连了哪些外部主机（实测），你点「装」才装。
 - **跟版通道**：CI 每天看上游、生成锁、全新装、自检、出带校验值的运行时清单（发布那一步先关着）。客户端只装验过的清单、旧版留着；融合自检不过时工作台停用、显示「等插件更新」，给「先退回上一版 DSH」（没有验过的旧版时不可点），对话退回每轮起一个 DSH 并照实提示。
-- 写盘与收尾：恢复 / 卸载 / 回滚前核对组合是本插件建的，快照只还原回建它的那份 DSH 目录；插件停用后不再起试启动的 DSH；DSH 里点取消时，还在等 Forsion 回话的那次安装按拒绝处理；常驻进程输出按流解码（中文跨块不乱码）；通道版本修复时按存着的清单装。
+- 写盘与收尾：恢复 / 卸载 / 回滚前核对组合是本插件建的，快照只还原回建它的那份 DSH 目录；插件停用后不再起试启动的 DSH；DSH 里点取消时，还在等 Forsion 回话的那次安装按拒绝处理；常驻进程输出按流解码（中文跨块不乱码）；通道版本修复时按存着的清单装。落点：工作台开着时只换地址 # 那段（同一个页面里跳）；整页载入时 DSH 会把存着的上次那场恢复出来、可能盖掉落点，几秒里看到被盖回就再开一次（用户自己点到别处就不动）；新一次右键作废还没用上的旧落点。Harness 卡「DSH 插件」跟着装 / 卸变。
 - DSH 插件工具进 Tangu 缺省关。停用：DSH Space、TaskBoard / Skills Manager / Git Graph 三个打补丁的面板、DSH 模型进 Tangu 模型列表。桥 0.2.0：工具调用用 0.2.2 的批量接口。
 - Tier 1: one resident DSH with the web interface and ACP in one process (own profile `forsion` in your DSH folder) that DSH chats connect to; the DSH workbench tab; Harness rows and a right-click item; an install review measured before and after in a scratch folder; a follow-version channel (publishing off) with going back to an earlier verified DSH. DSH plugin tools in Tangu are off by default; the DSH Space, the three patched panels and DSH model sources are stopped.
 

@@ -449,6 +449,7 @@ ctx.registerView({
       checking = true
       try {
         const s = await call('/status')
+        notePlugins(s)
         if (!alive || (phase !== 'surface' && phase !== 'waiting')) return
         const st = s.sidecar?.state
         const events = s.fusion?.events ?? []
@@ -520,9 +521,9 @@ ctx.registerView({
 
     // 已经开着的工作台：只换地址 # 那段（宿主照页面此刻的地址算，同一个页面里跳，不重载）；还没嵌好页面的，等 mountSurface 带上
     const land = () => {
-      if (phase !== 'surface' || !surface?.navigate || !mountedUrl || !landing) return
+      if (phase !== 'surface' || !surface?.navigate || !mountedUrl || !landing) { if (landing) console.info('[dsh2forsion] landing waits for the page', phase); return }
       const l = takeLanding()
-      if (l) surface.navigate(landingHash(l))
+      if (l) { console.info('[dsh2forsion] landing on', l.id); surface.navigate(landingHash(l)) }
       surface.focus?.()
     }
     landers.add(land)
@@ -549,6 +550,16 @@ const openManage = () => {
 }
 
 let harness = null
+// 用户装的 DSH 插件变了(工作台里装 / 卸):开着的 Harness 卡别停在旧的个数上,让宿主重取一次行
+let pluginsKey = null
+// 第一次只记下；之后谁先看到变了（工作台的轮询或某张卡取行）都让宿主把所有卡重取一次，重取时指纹不变就停
+const notePlugins = (s) => {
+  const key = s?.plugins?.key
+  if (typeof key !== 'string') return
+  const changed = pluginsKey !== null && key !== pluginsKey
+  pluginsKey = key
+  if (changed) harness?.refresh()
+}
 const stateKey = s => {
   if (!s.runtime?.installed) return ['stateMissing', 'neutral']
   if (s.fusion?.incompatible) return ['stateIncompatible', 'danger']
@@ -564,6 +575,7 @@ const settleLater = () => {
 
 async function harnessRows() {
   const s = await call('/status')
+  notePlugins(s)
   if (s.sidecar?.state === 'starting' || s.job?.running) settleLater()
   let plugins = []
   try { if (s.runtime?.installed && s.sidecar?.state === 'running') plugins = (await call('/plugins')).plugins ?? [] } catch { plugins = [] }
@@ -606,6 +618,7 @@ const holdThenOpen = async ({ sessionId }) => {
   try {
     const r = await call('/hold', { method: 'POST', body: { sessionId } })
     if (gen !== holdGen) return
+    console.info('[dsh2forsion] hold', r?.ok === true ? `ok ${r.engineSessionId}` : r?.code ?? 'error', `landers ${landers.size}`)
     if (r?.ok === true && r.engineSessionId) landOn(String(r.engineSessionId))
     if (r && r.ok === false) {
       const key = r.code === 'no_engine_session' ? 'holdNoSession' : r.code === 'busy' || r.code === 'gone' ? 'holdBusy' : null
@@ -637,6 +650,7 @@ function managePanel(el) {
 
   const act = async (fn) => {
     try { await fn() } catch (error) { result.replaceChildren(h('p', { class: 'd2f-error' }, String(error.message ?? error))) }
+    harness?.refresh() // 卸载 / 回滚之后 Harness 卡上的个数跟着变
     if (alive) await render()
   }
 
