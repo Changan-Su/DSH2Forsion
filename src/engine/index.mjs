@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DSH_VERSION, ENGINE_ID, NODE_VERSION, PLUGIN_ID, PROFILE } from './constants.mjs'
-import { activeVersion, compareVersions, fetchChannel, installedVersions, PLUGIN_VERSION, previousVersion, setActiveVersion, verifiedVersions } from './channel.mjs'
+import { activeVersion, compareVersions, fetchChannel, installedVersions, PLUGIN_VERSION, previousVersion, setActiveVersion, storedManifest, verifiedVersions } from './channel.mjs'
 import { ensureFusedProfile } from './fusion.mjs'
 import { layout, resolveDshHome } from './layout.mjs'
 import { PluginManager } from './plugins.mjs'
@@ -56,6 +56,7 @@ export function createPlugin() {
       let incompatible = null
       let profileError = null
       const sessionEvents = []
+      let eventSeq = 0 // 单调递增：状态里只带最后 10 条，界面按序号认新来的（按条数认，满了之后就再也看不到新的）
       const offline = new Error('DSH2Forsion is turned off')
       let starting = null
       const startNow = async () => {
@@ -196,7 +197,7 @@ export function createPlugin() {
           return sidecar.connection()
         },
         onSession: (event) => {
-          sessionEvents.push({ ...event, at: Date.now() })
+          sessionEvents.push({ ...event, seq: ++eventSeq, at: Date.now() })
           if (sessionEvents.length > 50) sessionEvents.splice(0, sessionEvents.length - 50)
         },
       })
@@ -273,7 +274,12 @@ export function createPlugin() {
         router.get('/status', (_req, res) => send(res, status))
         router.get('/logs', (_req, res) => send(res, () => ({ lines: [...logs], sidecar: sidecar.lines.slice(-200) })))
         router.post('/runtime/install', (_req, res) => send(res, () => {
-          const started = runJob('install-runtime', jlog => installRuntime(paths, { source: settings().downloadSource, log: jlog }).then(() => start()))
+          // 当前选中的是通道上验过的另一版：按它存着的清单装（随包的锁只对钉死那一版）；清单不在 / 不对就不装，别装错版本
+          const started = runJob('install-runtime', async jlog => {
+            const manifest = await storedManifest(root, paths.dshVersion)
+            await installRuntime(paths, { source: settings().downloadSource, log: jlog, ...(manifest ? { files: manifest.files } : {}) })
+            await start()
+          })
           return { started }
         }))
         router.post('/sidecar/start', (_req, res) => send(res, async () => { await start(); return status() }))

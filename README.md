@@ -22,9 +22,9 @@ The compatibility runtime may remain an implementation detail. Users should keep
 
 ## 状态 / Status
 
-**0.2.0**（开发中）：钉死 DSH `0.2.2-rc.3`、Node `v24.22.0`、pnpm `11.28.6`。需要包含 Genesis 常驻引擎、受控网页容器与 Harness 行接缝的宿主（Changan-Su/Forsion#697，未发布）；旧宿主上工作台退回裸 `<webview>`，Harness 行和右键菜单没有，DSH 的对话仍每轮起一个 DSH，运行时设置页会照实写明。
+**0.2.0**（开发中）：钉死 DSH `0.2.2-rc.3`、Node `v24.22.0`、pnpm `11.28.6`。需要包含 Genesis 常驻引擎、受控网页容器与 Harness 行接缝的宿主（Changan-Su/Forsion#697，未发布）；旧宿主上工作台打不开、提示更新 Forsion（不退回裸 `<webview>`：那会进内置浏览器的分区、还能跳出本机），Harness 行和右键菜单没有，DSH 的对话仍每轮起一个 DSH，运行时设置页会照实写明。
 
-**0.2.0** (in development): pins DSH `0.2.2-rc.3`. Needs a host with the resident-engine, controlled web surface and Harness-row seams (Changan-Su/Forsion#697, unreleased). On older hosts the workbench falls back to a plain `<webview>`, there are no Harness rows or right-click item, and DSH chats still start DSH per turn; the runtime page says so.
+**0.2.0** (in development): pins DSH `0.2.2-rc.3`. Needs a host with the resident-engine, controlled web surface and Harness-row seams (Changan-Su/Forsion#697, unreleased). On older hosts the workbench does not open and asks to update Forsion (no fallback to a plain `<webview>`), there are no Harness rows or right-click item, and DSH chats still start DSH per turn; the runtime page says so.
 
 **v0.1.0**（2026-10-18）：钉死 DSH `0.2.1-rc.2`；隔离的 DSH 目录、DSH Space、Tangu 工具桥、三个打补丁的原生面板。见 [CHANGELOG.md](CHANGELOG.md)。
 

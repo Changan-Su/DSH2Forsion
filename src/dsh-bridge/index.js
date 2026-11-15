@@ -56,6 +56,8 @@ const INSTALL_TTL_MS = 15 * 60_000
 
 export function installGate(ctx, log) {
   const pending = new Map()
+  // 被停住的安装按 DSH 插件页给的 requestId 记着：DSH 自己的「取消」和断线重连后的 waitForInstall 认的是它
+  const byRequest = new Map()
   const gate = { armed: false, reason: 'waiting for the plugin manager', pending,
     list: () => [...pending.values()].map(({ id, spec, at }) => ({ id, spec, at })),
     decide(id, allow, message) {
@@ -76,21 +78,49 @@ export function installGate(ctx, log) {
     while (owner && !Object.prototype.hasOwnProperty.call(owner, 'installBundle')) owner = Object.getPrototypeOf(owner)
     if (!owner) { gate.reason = 'installBundle is not defined on the plugin manager class'; log.warn(gate.reason); return () => {} }
     const original = owner.installBundle
+    const originalCancel = typeof owner.cancelInstall === 'function' ? owner.cancelInstall : null
+    const originalWait = typeof owner.waitForInstall === 'function' ? owner.waitForInstall : null
     const wrapped = function installBundle(spec, options) {
       if (options?.requestId === undefined || options?.expected !== undefined) return original.call(this, spec, options)
       const id = randomUUID()
+      const requestId = options.requestId
       const held = new Promise((resolve, reject) => {
         const timer = setTimeout(() => gate.decide(id, false, 'Nobody confirmed this install in Forsion'), INSTALL_TTL_MS)
         timer.unref?.()
         pending.set(id, { id, spec: String(spec), at: Date.now(), resolve, reject, timer })
       })
       log.info('install of %s held for review in Forsion', String(spec))
-      return held.then(() => original.call(this, spec, options))
+      const result = held.then(() => original.call(this, spec, options))
+      byRequest.set(requestId, { id, result })
+      const forget = () => { if (byRequest.get(requestId)?.result === result) byRequest.delete(requestId) }
+      result.then(forget, forget)
+      return result
     }
-    try { owner.installBundle = wrapped } catch (error) { gate.reason = `installBundle could not be replaced: ${error?.message ?? error}`; log.warn(gate.reason); return () => {} }
+    // 还在等 Forsion 回话时，DSH 里点了取消：当用户拒绝（原来的 cancelInstall 不认得这次安装，会回 not-running）
+    const wrappedCancel = async function cancelInstall(requestId) {
+      const hold = byRequest.get(requestId)
+      if (hold && pending.has(hold.id)) { gate.decide(hold.id, false, 'Cancelled in DSH'); return { status: 'cancelled' } }
+      return originalCancel.call(this, requestId)
+    }
+    // 断线重连后 DSH 的界面按 requestId 取这次安装的结果：停住的那次给同一个结果（被拒 = 没有这次安装）
+    const wrappedWait = async function waitForInstall(requestId) {
+      const hold = byRequest.get(requestId)
+      if (hold) return hold.result.catch(() => null)
+      return originalWait.call(this, requestId)
+    }
+    try {
+      owner.installBundle = wrapped
+      if (originalCancel) owner.cancelInstall = wrappedCancel
+      if (originalWait) owner.waitForInstall = wrappedWait
+    } catch (error) { gate.reason = `installBundle could not be replaced: ${error?.message ?? error}`; log.warn(gate.reason); return () => {} }
     gate.armed = pm.installBundle === wrapped || owner.installBundle === wrapped
     gate.reason = gate.armed ? 'armed' : 'installBundle could not be replaced'
-    return () => { if (owner.installBundle === wrapped) owner.installBundle = original; gate.armed = false; gate.reason = 'disarmed' }
+    return () => {
+      if (owner.installBundle === wrapped) owner.installBundle = original
+      if (originalCancel && owner.cancelInstall === wrappedCancel) owner.cancelInstall = originalCancel
+      if (originalWait && owner.waitForInstall === wrappedWait) owner.waitForInstall = originalWait
+      gate.armed = false; gate.reason = 'disarmed'
+    }
   }
   if (typeof ctx.inject !== 'function') gate.reason = 'this DSH has no ctx.inject'
   else {

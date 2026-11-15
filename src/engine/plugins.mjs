@@ -5,12 +5,14 @@
 import { existsSync } from 'node:fs'
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { PROFILE } from './constants.mjs'
+import { FUSION_MARKER, PROFILE } from './constants.mjs'
 import { LAST_GOOD, copyProfileFiles, copyProfileTo, dsh, newestBackup, profileDir, shadowedCorePackages, userPlugins } from './profile.mjs'
 import { tail } from './proc.mjs'
 import { Sidecar } from './sidecar.mjs'
 
 const NPM_NAME = /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i
+const HOME_FILE = 'dsh-home.txt'
+const NOT_OURS = `The DSH profile "${PROFILE}" was not created by DSH2Forsion, so DSH2Forsion leaves it alone.`
 const UNDONE_PREFIX = 'undone-'
 const UNDONE_KEEP = 5
 
@@ -90,6 +92,9 @@ export class PluginManager {
     await this.probe?.stop(1000).catch(() => {})
   }
 
+  /** 改真实组合之前核对：组合是本插件建的（有标记文件）。用户自己建的同名组合一个字都不动。 */
+  owned() { return existsSync(join(profileDir(this.paths.home), FUSION_MARKER)) }
+
   /** 插件操作一次只做一件。停用以后不再接新活。 */
   exclusive(label, fn) {
     if (this.disposed) return Promise.reject(new Error('DSH2Forsion is being turned off'))
@@ -142,11 +147,13 @@ export class PluginManager {
     // 用户 DSH 目录顶层的 cordis.patch.yml 对所有组合生效：试启动也带上它（只读，不往回写）
     if (existsSync(join(this.paths.home, 'cordis.patch.yml'))) await cp(join(this.paths.home, 'cordis.patch.yml'), join(trial, 'cordis.patch.yml'))
     const sync = await dsh(this.paths, trial, ['plugin', '--profile', PROFILE, 'install', '--ignore-scripts'], { log })
+    if (this.disposed) { await rm(trial, { recursive: true, force: true }); return { verdict: 'failed', spec, name, reasons: ['DSH2Forsion is being turned off'] } }
     if (sync.code !== 0) return { verdict: 'failed', spec, name, reasons: [`could not prepare the trial copy: ${tail(sync.out, 4)}`], ms: Date.now() - t0 }
     const before = await this.measure(trial, 'before')
     if (this.disposed) return { verdict: 'failed', spec, name, reasons: ['DSH2Forsion is being turned off'] }
     log(`review: add ${spec}`)
     const add = await dsh(this.paths, trial, ['plugin', '--profile', PROFILE, 'add', '--ignore-scripts', spec], { log })
+    if (this.disposed) { await rm(trial, { recursive: true, force: true }); return { verdict: 'failed', spec, name, reasons: ['DSH2Forsion is being turned off'] } }
     if (add.code !== 0 && VERSION_REFUSED.test(add.out)) {
       await rm(trial, { recursive: true, force: true })
       return { verdict: 'version-refused', spec, name, reasons: [tail(add.out, 4)], ms: Date.now() - t0 }
@@ -183,6 +190,8 @@ export class PluginManager {
 
   /** 在体检目录里起一次组合，量工具、提示词分节和外连主机；起不来也返回（ready=false）。 */
   async measure(trial, label) {
+    // 停用以后不再起试启动的 DSH（dispose 只收得掉已经在跑的那个）
+    if (this.disposed) return { ready: false, tools: [], sections: [], lines: [], hosts: [], deps: [] }
     const netFile = join(trial, `net-${label}.txt`)
     await writeFile(netFile, '')
     const probe = new Sidecar(this.paths, { home: trial, label: `trial-${label}`, cwd: trial, preload: this.deps.netHook, extraEnv: { DSH2FORSION_TRIAL_NET: netFile } })
@@ -190,6 +199,7 @@ export class PluginManager {
     let ready = false, tools = [], sections = []
     try {
       await probe.start(); ready = true
+      if (this.disposed) throw new Error('turning off')
       // 等日志里的激活告警、插件启动时的外连落地
       await new Promise(r => setTimeout(r, 2500))
       const check = await probe.bridge('/fusion/check')
@@ -208,6 +218,7 @@ export class PluginManager {
   remove(name) {
     if (typeof name !== 'string' || !NPM_NAME.test(name)) return Promise.resolve({ status: 'failed', name, message: 'not an npm package name' })
     return this.exclusive(`remove ${name}`, async () => {
+      if (!this.owned()) return { status: 'failed', name, message: NOT_OURS }
       await this.snapshot(`before remove ${name}`)
       const r = await dsh(this.paths, this.paths.home, ['plugin', '--profile', PROFILE, 'remove', name], { log: this.deps.log })
       if (r.code !== 0) return { status: 'failed', name, message: tail(r.out, 8) }
@@ -223,8 +234,10 @@ export class PluginManager {
    */
   rollback() {
     return this.exclusive('rollback', async () => {
+      if (!this.owned()) return { status: 'failed', message: NOT_OURS }
       const dir = await newestBackup(this.paths.backups)
       if (!dir) return { status: 'nothing-to-roll-back' }
+      if (!await this.sameHome(dir)) return { status: 'failed', message: 'That snapshot is from a different DSH folder; it was kept and not applied.' }
       const undone = await this.snapshot('replaced by rollback', UNDONE_PREFIX)
       await pruneUndone(this.paths.backups)
       const ok = await this.restore(dir)
@@ -240,12 +253,19 @@ export class PluginManager {
     const dir = join(this.paths.backups, LAST_GOOD)
     await copyProfileFiles(profileDir(this.paths.home), join(dir, 'profile'))
     await writeFile(join(dir, 'label.txt'), `last good start ${new Date().toISOString()}\n`)
+    await writeFile(join(dir, HOME_FILE), this.paths.home)
+  }
+
+  /** 快照只还原回建它的那份 DSH 目录（换过 DSH_HOME、或 v0.1 私有目录留下的快照都不认）。 */
+  async sameHome(dir) {
+    try { return (await readFile(join(dir, HOME_FILE), 'utf8')) === this.paths.home } catch { return false }
   }
 
   restoreLastGood() {
     return this.exclusive('restore last good', async () => {
+      if (!this.owned()) return { status: 'failed', message: NOT_OURS }
       const dir = join(this.paths.backups, LAST_GOOD)
-      if (!existsSync(join(dir, 'profile', 'package.json'))) return { status: 'nothing-to-restore' }
+      if (!existsSync(join(dir, 'profile', 'package.json')) || !await this.sameHome(dir)) return { status: 'nothing-to-restore' }
       await this.snapshot('before restoring last good')
       await this.restore(dir)
       await this.deps.restart()
@@ -259,10 +279,12 @@ export class PluginManager {
     await mkdir(dir, { recursive: true })
     await copyProfileFiles(profileDir(this.paths.home), join(dir, 'profile'))
     await writeFile(join(dir, 'label.txt'), `${label}\n`)
+    await writeFile(join(dir, HOME_FILE), this.paths.home)
     return dir
   }
 
   async restore(dir) {
+    if (!this.owned() || !await this.sameHome(dir)) { this.deps.log('restore refused: profile not ours or snapshot from another DSH folder'); return false }
     // 只还原自己那份组合；DSH 目录顶层的 cordis.patch.yml 是用户所有组合共用的，从不往回写
     await copyProfileFiles(join(dir, 'profile'), profileDir(this.paths.home))
     // 按恢复后的清单和锁文件重装 node_modules

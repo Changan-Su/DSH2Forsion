@@ -123,12 +123,13 @@ await it('first open: onboarding names the DSH folder and download; install poll
   assert.equal(el.querySelector('.surface'), null)
 })
 
-await it('an old host without the controlled surface falls back to a webview in the old partition', async () => {
+await it('an old host without the controlled surface: no raw webview, the workbench asks to update Forsion', async () => {
   const { reg } = setup({ routes: { '/status': status(), 'POST /workbench': { url: 'http://127.0.0.1:4100/?token=abc' }, 'POST /appearance': { ok: true }, '/reviews': { reviews: [] } } })
   const el = document.createElement('div')
   const dispose = reg.views.workbench.mount(el)
-  const wv = await until(() => el.querySelector('webview'))
-  assert.equal(wv.getAttribute('partition'), 'persist:dsh2forsion')
+  const card = await until(() => el.querySelector('[data-d2f="old-host"]'))
+  assert.match(card.textContent, /更新 Forsion/)
+  assert.equal(el.querySelector('webview'), null)
   dispose()
 })
 
@@ -158,8 +159,13 @@ await it('the workbench remounts when DSH restarts on a new address and reloads 
   const el = document.createElement('div')
   const dispose = reg.views.workbench.mount(el)
   await until(() => el.querySelector('.surface'))
-  events = [{ type: 'held', engineSessionId: 'e1' }, { type: 'reopened', engineSessionId: 'e1', sessionId: 's1' }]
+  events = [{ type: 'held', engineSessionId: 'e1', seq: 1 }, { type: 'reopened', engineSessionId: 'e1', sessionId: 's1', seq: 2 }]
   await until(() => reg.surfaces[0].reloads === 1, 5000)
+  // 状态里只带最后 10 条：满了之后按序号照样认得出新来的
+  events = Array.from({ length: 10 }, (_, i) => ({ type: i === 9 ? 'reopened' : 'held', engineSessionId: 'e1', seq: 20 + i }))
+  await until(() => reg.surfaces[0].reloads === 2, 5000)
+  events = events.slice(1).concat({ type: 'reopened', engineSessionId: 'e1', seq: 30 })
+  await until(() => reg.surfaces[0].reloads === 3, 5000)
   base = 'http://127.0.0.1:4200'
   await until(() => el.querySelector('.surface')?.dataset.url === 'http://127.0.0.1:4200/?token=t', 5000)
   dispose()
@@ -239,6 +245,30 @@ await it('right-click "open in the workbench": holds the conversation first, the
   reg.harness.sessionActions[0].run({ sessionId: 's2' })
   await until(() => reg.notes.length === 1)
   assert.match(reg.notes[0].message, /还没在 DSH 上跑过/)
+})
+
+await it('right-clicking two conversations quickly: the later one wins even if the earlier hold answers last', async () => {
+  const pending = new Map()
+  const routes = {
+    '/status': () => status(),
+    'POST /workbench': { url: 'http://127.0.0.1:4100/?token=abc', base: 'http://127.0.0.1:4100' },
+    'POST /appearance': { ok: true }, '/reviews': { reviews: [] },
+    'POST /hold': (body) => new Promise(r => pending.set(body.sessionId, () => r({ ok: true, engineSessionId: `dsh-${body.sessionId}`, state: 'open' }))),
+  }
+  const { reg, calls } = setup({ withSurface: true, routes })
+  reg.harness.sessionActions[0].run({ sessionId: 'A' })
+  reg.harness.sessionActions[0].run({ sessionId: 'B' })
+  await until(() => pending.size === 2)
+  pending.get('B')()
+  await until(() => calls.filter(c => c.openView === 'workbench').length === 1)
+  pending.get('A')()
+  await new Promise(r => setTimeout(r, 50))
+  assert.equal(calls.filter(c => c.openView === 'workbench').length, 1, 'the superseded hold opens nothing')
+  const el = document.createElement('div')
+  const dispose = reg.views.workbench.mount(el)
+  const surface = await until(() => el.querySelector('.surface'), 6000)
+  assert.match(surface.dataset.url, /#d2f-session=dsh-B&n=\d+$/)
+  dispose()
 })
 
 await it('the workbench lands on the held conversation: on first mount through the address, when already open by changing only the # part', async () => {

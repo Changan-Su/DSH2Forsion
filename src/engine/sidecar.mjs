@@ -4,6 +4,7 @@
 // - 启动令牌只在内存里：进日志的每一行都先把 token 抹掉，不落盘、不打印。
 // - stdin 一直开着：ACP 入口读到 EOF 就会退出。
 import { spawn } from 'node:child_process'
+import { StringDecoder } from 'node:string_decoder'
 import { randomBytes } from 'node:crypto'
 import { PassThrough } from 'node:stream'
 import { pathToFileURL } from 'node:url'
@@ -125,14 +126,16 @@ export class Sidecar {
       }
       const reader = fromStdout => {
         let pending = ''
+        // 一个多字节字符（中文）可能被拆在两块里：逐块 toString 会变成乱码，用流式解码器接上
+        const decoder = new StringDecoder('utf8')
         return {
           data: chunk => {
-            pending += chunk.toString('utf8')
+            pending += decoder.write(chunk)
             const parts = pending.split(/\r?\n/)
             pending = parts.pop() ?? ''
             for (const line of parts) onLine(line, fromStdout)
           },
-          flush: () => { if (pending) onLine(pending, fromStdout); pending = '' },
+          flush: () => { pending += decoder.end(); if (pending) onLine(pending, fromStdout); pending = '' },
         }
       }
       const out = reader(true), err = reader(false)

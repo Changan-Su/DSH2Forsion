@@ -5,7 +5,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ensureFusedProfile, fusionPatch, ForeignProfileError } from '../src/engine/fusion.mjs'
-import { redact } from '../src/engine/sidecar.mjs'
+import { redact, Sidecar } from '../src/engine/sidecar.mjs'
+import { PluginManager } from '../src/engine/plugins.mjs'
 import { activeVersion, compareVersions, previousVersion, setActiveVersion, validateManifest, verifiedVersions } from '../src/engine/channel.mjs'
 import { DSH_VERSION, FUSION_MARKER, NODE_VERSION, PNPM_VERSION } from '../src/engine/constants.mjs'
 import { layout, resolveDshHome } from '../src/engine/layout.mjs'
@@ -127,7 +128,11 @@ try {
   })
 
   await it('install gate: holds only installs the plugin page starts, releases on allow, rejects on deny / dispose, restores on unload', async () => {
-    class PluginManager { async installBundle(spec, options) { return { installed: spec, options } } }
+    class PluginManager {
+      async installBundle(spec, options) { return { installed: spec, options } }
+      async cancelInstall() { return { status: 'not-running' } }
+      async waitForInstall() { return null }
+    }
     const pm = new PluginManager()
     // cordis 给的是代理：往代理身上赋值无效
     const proxy = new Proxy(pm, { set: () => true })
@@ -147,13 +152,82 @@ try {
     const denied = proxy.installBundle('x', { requestId: 'r2' })
     gate.decide(gate.list()[0].id, false, 'Cancelled in Forsion')
     await assert.rejects(denied, /Cancelled in Forsion/)
+    // DSH 里点取消：还在等 Forsion 回话的那次当作拒绝；重连后按 requestId 取结果拿到的是同一次
+    const waiting = proxy.installBundle('w', { requestId: 'r5' })
+    const recovered = proxy.waitForInstall('r5')
+    assert.deepEqual(await proxy.cancelInstall('r5'), { status: 'cancelled' })
+    await assert.rejects(waiting, /Cancelled in DSH/)
+    assert.equal(await recovered, null, 'a refused install is no install')
+    assert.equal(gate.list().length, 0)
+    assert.deepEqual(await proxy.cancelInstall('other'), { status: 'not-running' }, 'unknown ids still go to DSH')
+    const approved = proxy.installBundle('v', { requestId: 'r6' })
+    const later = proxy.waitForInstall('r6')
+    gate.decide(gate.list()[0].id, true)
+    assert.equal((await later).installed, 'v')
+    await approved
     const pending = proxy.installBundle('y', { requestId: 'r3' })
     gate.dispose()
     await assert.rejects(pending, /bridge stopped/)
     unload()
     assert.equal(gate.armed, false)
     assert.equal(PluginManager.prototype.installBundle.name, 'installBundle')
+    assert.deepEqual(await proxy.cancelInstall('r7'), { status: 'not-running' }, 'unloaded: original cancel back')
     assert.deepEqual(await proxy.installBundle('z', { requestId: 'r4' }), { installed: 'z', options: { requestId: 'r4' } }, 'unloaded: original method back')
+  })
+
+  await it('restore / remove / roll back leave a profile alone that DSH2Forsion did not create, and snapshots only go back to their own DSH folder', async () => {
+    const paths = layout(join(scratch, 'own-root'), process.platform, { dshHome: join(scratch, 'own-dsh') })
+    let restarts = 0
+    const mgr = new PluginManager(paths, { main: { state: 'stopped' }, bridgeDir: '', netHook: '', known: () => ({}), log: () => {}, restart: async () => { restarts++ } })
+    await mkdir(paths.profileDir, { recursive: true })
+    await writeFile(join(paths.profileDir, 'package.json'), '{"name":"mine"}\n') // 用户自己建的同名组合（没有标记文件）
+    // 别处来的「上次能启动」快照
+    await mkdir(join(paths.backups, 'last-good', 'profile'), { recursive: true })
+    await writeFile(join(paths.backups, 'last-good', 'profile', 'package.json'), '{"name":"backup"}\n')
+    for (const r of [await mgr.restoreLastGood(), await mgr.rollback(), await mgr.remove('dsh-genui')]) assert.equal(r.status, 'failed', JSON.stringify(r))
+    assert.equal(await readFile(join(paths.profileDir, 'package.json'), 'utf8'), '{"name":"mine"}\n', 'the foreign profile is untouched')
+    assert.equal(restarts, 0)
+    // 是自己的组合，但快照来自另一份 DSH 目录（换过 DSH_HOME / v0.1 的私有目录）：不认
+    await writeFile(join(paths.profileDir, FUSION_MARKER), '{}')
+    assert.equal(await mgr.sameHome(join(paths.backups, 'last-good')), false)
+    assert.equal((await mgr.restoreLastGood()).status, 'nothing-to-restore')
+    assert.equal(await readFile(join(paths.profileDir, 'package.json'), 'utf8'), '{"name":"mine"}\n')
+    const snap = await mgr.snapshot('test')
+    assert.equal(await mgr.sameHome(snap), true, 'a snapshot taken here belongs here')
+  })
+
+  await it('trial probes do not start once the plugin is being turned off', async () => {
+    const paths = layout(join(scratch, 'off-root'), process.platform, { dshHome: join(scratch, 'off-dsh') })
+    const mgr = new PluginManager(paths, { main: { state: 'stopped' }, bridgeDir: '', netHook: '', known: () => ({}), log: () => {}, restart: async () => {} })
+    await mgr.dispose()
+    const m = await mgr.measure(join(scratch, 'off-trial'), 'before')
+    assert.equal(m.ready, false)
+    assert.equal(mgr.probe, null, 'no probe was created')
+  })
+
+  await it('Chinese text split across two stdout chunks reaches the chat intact', async () => {
+    const dir = join(scratch, 'utf8')
+    await mkdir(dir, { recursive: true })
+    const fake = join(dir, 'fake-dsh.mjs')
+    // 就绪行之后写一条 JSON：在「你」的三个字节中间断开，分两次写
+    await writeFile(fake, `const line = Buffer.from(JSON.stringify({ jsonrpc: '2.0', method: 'x', params: { text: '你好' } }) + '\\n')
+const cut = line.indexOf(Buffer.from('你')) + 1
+process.stdout.write('dsh web: http://127.0.0.1:1/?token=abc\\n')
+setTimeout(() => { process.stdout.write(line.subarray(0, cut)); setTimeout(() => process.stdout.write(line.subarray(cut)), 50) }, 50)
+setInterval(() => {}, 1000)
+`)
+    const paths = { ...layout(join(scratch, 'utf8-root'), process.platform, { dshHome: join(scratch, 'utf8-dsh') }), nodeBin: process.execPath, dshBin: fake }
+    const sc = new Sidecar(paths, { cwd: dir })
+    try {
+      await sc.start()
+      const conn = sc.connection()
+      let got = ''
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('no JSON line')), 5000)
+        conn.output.on('data', d => { got += d; if (got.includes('\n')) { clearTimeout(t); resolve() } })
+      })
+      assert.equal(JSON.parse(got.trim()).params.text, '你好')
+    } finally { await sc.stop(1000) }
   })
 
   await it('install gate reports why it is not armed', () => {

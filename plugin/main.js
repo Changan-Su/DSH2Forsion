@@ -104,6 +104,8 @@ const STRINGS = {
     busy: '正在处理：{job}',
     restartNote: '重启 DSH 会中断正在跑的 DSH 对话。',
     oldHostResident: '这个版本的 Forsion 还不能让 DSH 的对话连这个常驻的 DSH：对话照旧每轮起一个 DSH，工作台里看不到它们。更新 Forsion 后连得上。',
+    oldHostSurfaceTitle: '要更新 Forsion',
+    oldHostSurface: '这个版本的 Forsion 没有给插件用的受控网页容器，DSH 工作台打不开。更新 Forsion 后再打开；DSH 的对话照旧能用。',
   },
   en: {
     workbenchTitle: 'DSH workbench',
@@ -199,6 +201,8 @@ const STRINGS = {
     busy: 'Working on: {job}',
     restartNote: 'Restarting DSH interrupts DSH chats that are running.',
     oldHostResident: 'This version of Forsion cannot connect DSH chats to this DSH yet: each turn still starts its own DSH, and the workbench does not show those chats. Update Forsion to connect them.',
+    oldHostSurfaceTitle: 'Update Forsion',
+    oldHostSurface: 'This version of Forsion has no controlled web surface for plugins, so the DSH workbench cannot open. Update Forsion, then open it again; DSH chats still work.',
   },
 }
 
@@ -314,7 +318,8 @@ ctx.registerView({
     // phase：surface = 嵌着 DSH 页面；waiting = 等它重启回来；其余（loading / onboarding / failed / incompatible）由用户操作推进
     let phase = 'loading'
     let mountedBase = null
-    let seenEvents = 0
+    let seenSeq = 0
+    const maxSeq = (events) => events.reduce((n, e) => Math.max(n, Number(e.seq) || 0), 0)
     let mountedUrl = null
     const dropSurface = () => { if (surface) { surface.dispose(); surface = null } mountedBase = null; mountedUrl = null }
     const show = (...nodes) => { dropSurface(); body.replaceChildren(h('div', { class: 'd2f-center' }, ...nodes)) }
@@ -327,20 +332,17 @@ ctx.registerView({
     const mountSurface = (url) => {
       dropSurface()
       body.replaceChildren()
+      // 旧宿主没有受控网页容器：不退回裸 <webview>（那会进内置浏览器的分区、还能跳出本机），请用户更新 Forsion
+      if (!ctx.ui?.mountWebSurface) {
+        phase = 'old-host'
+        show(h('div', { class: 'd2f-card', 'data-d2f': 'old-host' }, h('h2', {}, t('oldHostSurfaceTitle')), h('p', {}, t('oldHostSurface'))))
+        return
+      }
       const first = takeLanding()
       const src = first ? url + landingHash(first) : url
       // 受控网页容器（宿主管分区、导航只许回环、权限、销毁）。不能用 iframe：DSH 的登录 cookie 是 SameSite=Strict。
-      if (ctx.ui?.mountWebSurface) {
-        const handle = ctx.ui.mountWebSurface(body, { url: src, partition: 'workbench', onLoadFail: () => { if (alive && phase === 'surface') void open() } })
-        surface = { dispose: () => handle?.dispose?.(), reload: () => handle?.reload?.(), navigate: (u) => handle?.navigate?.(u), focus: () => handle?.focus?.() }
-      } else {
-        // 旧宿主：裸 <webview>（宿主会把它钉在内置浏览器的分区里）
-        const wv = document.createElement('webview')
-        wv.setAttribute('partition', 'persist:dsh2forsion')
-        wv.setAttribute('src', src)
-        body.append(wv)
-        surface = { dispose: () => wv.remove(), reload: () => wv.reload?.(), navigate: (u) => wv.setAttribute('src', u), focus: () => wv.focus?.() }
-      }
+      const handle = ctx.ui.mountWebSurface(body, { url: src, partition: 'workbench', onLoadFail: () => { if (alive && phase === 'surface') void open() } })
+      surface = { dispose: () => handle?.dispose?.(), reload: () => handle?.reload?.(), navigate: (u) => handle?.navigate?.(u), focus: () => handle?.focus?.() }
       phase = 'surface'
       mountedBase = new URL(url).origin
       mountedUrl = url
@@ -420,7 +422,7 @@ ctx.registerView({
       let status
       try { status = await call('/status') } catch (error) { if (alive) failed(String(error.message ?? error)); return }
       if (!alive) return
-      seenEvents = status.fusion?.events?.length ?? 0
+      seenSeq = Math.max(seenSeq, maxSeq(status.fusion?.events ?? []))
       if (!status.runtime?.installed) { onboarding(status); return }
       if (status.fusion?.profileError) { failed(t('foreignProfile')); return }
       if (status.sidecar?.state !== 'running') show(h('p', { class: 'd2f-muted' }, t('starting')))
@@ -458,9 +460,9 @@ ctx.registerView({
           phase = 'stopped'
           show(h('div', { class: 'd2f-card' }, h('p', {}, t('stoppedNote')),
             h('div', { class: 'd2f-row' }, h('button', { class: 'd2f-btn primary', onclick: () => void open() }, t('start')))))
-        } else if (phase === 'surface' && events.length > seenEvents) {
-          const fresh = events.slice(seenEvents)
-          seenEvents = events.length
+        } else if (phase === 'surface' && maxSeq(events) > seenSeq) {
+          const fresh = events.filter(e => (Number(e.seq) || 0) > seenSeq)
+          seenSeq = maxSeq(events)
           if (fresh.some(e => e.type === 'reopened')) surface?.reload()
         }
       } catch { /* 引擎一时不通：下一轮再看 */ } finally { checking = false }
@@ -596,15 +598,22 @@ async function harnessRows() {
   return [runtime, channel, pluginsRow]
 }
 
+// 先后右键了两场：只认最后点的那一场（先点的那场晚回来，不能把落点改回去）
+let holdGen = 0
 const holdThenOpen = async ({ sessionId }) => {
+  const gen = ++holdGen
   try {
     const r = await call('/hold', { method: 'POST', body: { sessionId } })
+    if (gen !== holdGen) return
     if (r?.ok === true && r.engineSessionId) landOn(String(r.engineSessionId))
     if (r && r.ok === false) {
       const key = r.code === 'no_engine_session' ? 'holdNoSession' : r.code === 'busy' || r.code === 'gone' ? 'holdBusy' : null
       ctx.notify?.(key ? t(key) : t('holdFailed', { reason: r.detail ?? r.code }), { level: key ? 'info' : 'warning' })
     }
-  } catch (error) { ctx.notify?.(t('holdFailed', { reason: String(error.message ?? error) }), { level: 'warning' }) }
+  } catch (error) {
+    if (gen !== holdGen) return
+    ctx.notify?.(t('holdFailed', { reason: String(error.message ?? error) }), { level: 'warning' })
+  }
   openWorkbench()
 }
 

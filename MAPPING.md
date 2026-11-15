@@ -11,7 +11,7 @@ The goal is native use of DSH agent capabilities in Tangu and WebUI contribution
 | 运行形态 | `dsh --profile <组合>`；网页界面与对话入口（ACP）是两份官方 bundle | 一份组合同时带 `dsh-base`、`dsh-web-app`、`dsh-acp-app`（网页界面的启动项写在组合配置里：不弹浏览器、只听 127.0.0.1 随机端口），常驻一个进程 | ✅ |
 | DSH 目录 | `$DSH_HOME`（缺省 `~/.dsh`） | 用用户自己的，组合名 `forsion`；会话、登录、技能与用户自己的 DSH 是同一批 | ✅ |
 | 对话 | ACP `session/new` / `resume` / `prompt` | Forsion 的 DSH 引擎经宿主「常驻引擎」接缝连这个进程的 stdio；网页界面开着同一场会话也接得上 | ✅（宿主 #697） |
-| 网页界面 | `dsh web` 页面，令牌换 Cookie | 「DSH 工作台」页签，宿主受控网页容器（本机回环、插件自己的分区、同源导航）；不换肤、不藏元素 | ✅（宿主 #697；旧宿主退回 `<webview>`） |
+| 网页界面 | `dsh web` 页面，令牌换 Cookie | 「DSH 工作台」页签，宿主受控网页容器（本机回环、插件自己的分区、同源导航）；不换肤、不藏元素 | ✅（宿主 #697；旧宿主上提示更新 Forsion） |
 | 选中会话 | 客户端 `uiWorkspace.openSession` | 右键「在 DSH 工作台里打开」：宿主先把这场在常驻进程里开着，工作台地址带 `#d2f-session=<id>`，桥的网页端小模块读到后调 `openSession`（只导航） | ✅ |
 | 组合里关掉的基础工具 | 网页界面那份接线按「预设」逐会话挂 | 组合里全局重新打开（agent-instructions、tool-fs、tool-bash、tool-subagent 等 20 行） | ✅ |
 | 插件安装 | 插件页 → `pluginManager.installBundle` | 桥包住它（只拦插件页发起的安装，不拦升级时的装回）；引擎半身装前 / 装后各试启动一次，报告工具、提示词字数、没启动的部分、实测外连主机；用户放行才装；装上后热加载，不重启 DSH | ✅ |
