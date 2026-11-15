@@ -7,6 +7,7 @@ import { managedSkills } from './skills.js'
 import { mcpSnapshot } from './mcp.js'
 import { SessionScopePool } from './session-scope.js'
 import { listModels, resolveModel, readModelBody, streamModelResponse } from './models.js'
+import { APPROVAL_EVENT, createApprovalRouter } from './approvals.js'
 
 export const name = 'dsh2forsion-bridge'
 export const inject = ['tools', 'webServer', 'systemPrompt', 'sessionProjections', 'skills', 'llm']
@@ -26,14 +27,29 @@ export function apply(ctx) {
   // Tangu 批过的调用：callId → 过期时刻。DSH 侧再问审批时只放行这些，其余交给下一个回答方
   // （DSH Space 里照常弹卡）；拿不到就不放行。
   const approved = new Map()
-  ctx.on('approval/request', async (req, next) => {
+  // DSH 自己的审批:Forsion 发的轮问到 Forsion 的审批卡,工作台发的轮留在工作台(approvals.js)。
+  // DSH2FORSION_APPROVAL_EVENT 只给测试用:故意挂到对不上的事件名上,看自检退回工作台提示。
+  const eventName = process.env.DSH2FORSION_APPROVAL_EVENT || APPROVAL_EVENT
+  const approvals = createApprovalRouter({
+    events: () => ctx.events, ownName: name, log, eventName,
+    // 只在融合进程里(stdout 是插件读的 ACP 管道)往 stdout 写扩展通知
+    write: process.env.DSH2FORSION_STDIO_NOTICES === '1' ? line => process.stdout.write(line) : null,
+  })
+  ctx.on(APPROVAL_EVENT, function (req, next) {
     const until = req.callId === undefined ? undefined : approved.get(req.callId)
     if (until !== undefined && until > Date.now()) {
       approved.delete(req.callId)
       return 'allowed-once'
     }
-    return next()
+    return eventName === APPROVAL_EVENT ? approvals.link(this, req, next) : next()
   }, { prepend: true })
+  if (eventName !== APPROVAL_EVENT) ctx.on(eventName, function (req, next) { return approvals.link(this, req, next) }, { prepend: true })
+  ctx.on('agent/inbox/claimed', payload => approvals.onClaim(payload))
+  ctx.on('session/event', (session, event) => approvals.onSessionEvent(session, event))
+  // DSH 的对话入口晚于桥装上:起来几秒后自检一次,原因进日志(之后每次接管前都再核一遍)
+  const firstCheck = setTimeout(() => approvals.check(), 3000)
+  firstCheck.unref?.()
+  ctx.effect(() => () => { clearTimeout(firstCheck); approvals.dispose() })
   watchParent(ctx, log)
   const agents = new AgentPool(ctx, log)
   const scopes = new SessionScopePool(ctx)
@@ -42,7 +58,7 @@ export function apply(ctx) {
   const dispose = ctx.webServer.register({
     kind: 'prefix',
     path: PREFIX,
-    handler: (req, res) => handle(ctx, { secret, approved, agents, scopes, gate }, req, res).catch(error => {
+    handler: (req, res) => handle(ctx, { secret, approved, agents, scopes, gate, approvals }, req, res).catch(error => {
       if (!res.headersSent && !res.destroyed) send(res, 500, { error: String(error?.message ?? error) })
     }),
   })
@@ -205,8 +221,15 @@ async function handle(ctx, state, req, res) {
     const sections = promptSections(ctx).map(s => ({ name: s.name, chars: s.text.length }))
     let tools = []
     try { tools = ctx.tools.schemas().map(t => t.name) } catch { tools = [] }
-    return send(res, 200, { ok: true, bridge: BRIDGE_VERSION, gate: state.gate.armed, gateReason: state.gate.reason, tools, sections })
+    return send(res, 200, { ok: true, bridge: BRIDGE_VERSION, gate: state.gate.armed, gateReason: state.gate.reason, approvals: state.approvals.status(), tools, sections })
   }
+  // 插件在 ACP 管道上看见 Forsion 的 session/prompt 进 / 回包出:先报到这里,再把那句交给 DSH
+  if (req.method === 'POST' && path === `${PREFIX}/forsion-turns`) {
+    const body = JSON.parse(await readBody(req))
+    const ok = state.approvals.setForsionTurn(typeof body.sessionId === 'string' ? body.sessionId : '', body.id, body.active === true)
+    return send(res, 200, { ok, approvals: state.approvals.status() })
+  }
+  if (req.method === 'GET' && path === `${PREFIX}/approvals`) return send(res, 200, state.approvals.status())
   if (req.method === 'GET' && path === `${PREFIX}/fusion/installs`) return send(res, 200, { armed: state.gate.armed, pending: state.gate.list() })
   if (req.method === 'POST' && path === `${PREFIX}/fusion/installs/decide`) {
     const body = JSON.parse(await readBody(req))

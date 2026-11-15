@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Window } from 'happy-dom'
+import { NOTICE_ACTION } from '../src/dsh-bridge/approvals.js'
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..')
 const source = await readFile(join(repo, 'plugin/main.js'), 'utf8')
@@ -78,6 +79,8 @@ await it('registers the workbench view, the runtime page, two commands and the D
   assert.deepEqual(Object.keys(reg.commands).sort(), ['dsh2forsion-manage', 'dsh2forsion-open-workbench'])
   assert.equal(reg.harness.engineId, 'dsh')
   assert.deepEqual(reg.harness.sessionActions.map(a => a.id), ['open-in-workbench'])
+  // 审批提示卡(引擎发的 _forsion/notice)的按钮按 id 找这一项:两边对不上按钮就静默消失
+  assert.equal(reg.harness.sessionActions[0].id, NOTICE_ACTION.id)
   assert.deepEqual(reg.harness.sessionActions[0].label, { zh: '在 DSH 工作台里打开', en: 'Open in the DSH workbench' })
   assert.equal(manifest.spaces, undefined)
   assert.equal(typeof reg.commands['dsh2forsion-open-workbench'].title, 'function')

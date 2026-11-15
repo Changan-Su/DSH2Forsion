@@ -268,6 +268,8 @@ export function createPlugin() {
         // 用户装的 DSH 插件清单的指纹(名字@版本):界面据此知道清单变了,让宿主重取 Harness 卡上的行
         plugins: { key: (await userPlugins(paths.home)).map(p => `${p.name}@${p.version}`).sort().join(',') },
         reviews: reviews.list().filter(r => r.state === 'checking' || r.state === 'ready').length,
+        // DSH 自己的审批:mode 'forsion' = Forsion 发的轮问到 Forsion 的审批卡;'workbench' = 自检没过,退回工作台提示(reason 写原因)
+        approvals: sidecar.state === 'running' ? await sidecar.bridge('/approvals', { signal: AbortSignal.timeout(1500) }).catch(() => null) : null,
         settings: settings(),
         nativeSkills: { supported: typeof ctx.registerSkillProvider === 'function' },
       })

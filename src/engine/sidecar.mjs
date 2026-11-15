@@ -6,7 +6,7 @@
 import { spawn } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
 import { randomBytes } from 'node:crypto'
-import { PassThrough } from 'node:stream'
+import { PassThrough, Writable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
 import { PROFILE, READY_TIMEOUT_MS } from './constants.mjs'
@@ -15,6 +15,8 @@ import { childEnv } from './env.mjs'
 const READY = /dsh web: (http:\/\/127\.0\.0\.1:\d+)\/\?token=(\S+)/
 const LOG_LIMIT = 400
 const BRIDGE_TIMEOUT_MS = 15_000
+/** 报「Forsion 在这场会话上开始一轮」的上限:报不上也照样把那句交给 DSH(审批退回工作台提示,不卡住这句)。 */
+const TURN_REPORT_MS = 1000
 
 /** 进日志之前抹掉启动令牌（就绪行、DSH 自己可能打的登录地址）。 */
 export function redact(line) {
@@ -88,7 +90,7 @@ export class Sidecar {
       const t0 = Date.now()
       const env = childEnv(process.env, {
         binDir: this.paths.runtimePath,
-        extra: { DSH_HOME: this.home, DSH2FORSION_SECRET: this.secret, DSH2FORSION_PARENT_PID: String(process.pid), npm_config_store_dir: join(this.paths.cache, 'pnpm-store'), npm_config_update_notifier: 'false', ...this.extraEnv },
+        extra: { DSH_HOME: this.home, DSH2FORSION_SECRET: this.secret, DSH2FORSION_PARENT_PID: String(process.pid), DSH2FORSION_STDIO_NOTICES: '1', npm_config_store_dir: join(this.paths.cache, 'pnpm-store'), npm_config_update_notifier: 'false', ...this.extraEnv },
       })
       const args = [...(this.preload ? ['--import', pathToFileURL(this.preload).href] : []), this.paths.dshBin, '--profile', PROFILE]
       let child
@@ -104,11 +106,12 @@ export class Sidecar {
       const output = new PassThrough()
       let exited
       const closed = new Promise(r => { exited = r })
-      const conn = { id: `${child.pid ?? 'x'}-${this.spawns}-${randomBytes(4).toString('hex')}`, input: child.stdin, output, closed }
+      const turns = promptGate(this, child.stdin)
+      const conn = { id: `${child.pid ?? 'x'}-${this.spawns}-${randomBytes(4).toString('hex')}`, input: turns.input, output, closed }
       child.stdin.on('error', () => { /* 进程退出时写半截：closed 会告诉对方 */ })
       let settled = false
       const onLine = (line, fromStdout) => {
-        if (fromStdout && line.trimStart().startsWith('{')) { output.write(line + '\n'); return }
+        if (fromStdout && line.trimStart().startsWith('{')) { turns.onOutput(line); output.write(line + '\n'); return }
         if (!line.trim()) return
         this.log(line)
         const m = !settled && line.match(READY)
@@ -240,4 +243,62 @@ export class Sidecar {
     if (this.state !== 'running' || !this.base) return null
     return `${this.base}/?token=${this.token}`
   }
+}
+
+const parseLine = line => { try { return JSON.parse(line) } catch { return null } }
+
+/**
+ * Forsion → DSH 的 ACP 管道(融合进程的 stdin)。Forsion 的 session/prompt 先报给桥(这场会话有 Forsion 的一轮在跑,
+ * DSH 要问的审批问到 Forsion 的审批卡),报完再交给 DSH;它的回包从 stdout 出来时报「这一轮完了」(onOutput)。
+ * 只看 session/prompt 的请求与回包这一层 ACP 协议,别的原样转过去。
+ */
+export function promptGate(sidecar, stdin) {
+  const pending = new Map() // ACP 请求 id → sessionId
+  const decoder = new StringDecoder('utf8')
+  let buf = ''
+  const report = (sessionId, id, active) => sidecar.bridge('/forsion-turns', {
+    method: 'POST', body: JSON.stringify({ sessionId, id, active }), signal: AbortSignal.timeout(TURN_REPORT_MS),
+  }).catch(error => sidecar.log(`[dsh2forsion] reporting a Forsion turn to the bridge failed: ${error?.message ?? error}`))
+  const put = data => new Promise(resolve => {
+    if (stdin.destroyed || !stdin.writable) return resolve()
+    if (stdin.write(data)) return resolve()
+    const done = () => { stdin.off('drain', done); stdin.off('close', done); resolve() }
+    stdin.once('drain', done)
+    stdin.once('close', done)
+  })
+  const input = new Writable({
+    write(chunk, _enc, cb) {
+      buf += decoder.write(chunk)
+      ;(async () => {
+        let i
+        while ((i = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, i + 1)
+          buf = buf.slice(i + 1)
+          const m = line.includes('"session/prompt"') ? parseLine(line) : null
+          if (m?.method === 'session/prompt' && m.id != null && typeof m.params?.sessionId === 'string') {
+            pending.set(m.id, m.params.sessionId)
+            await report(m.params.sessionId, m.id, true)
+          }
+          await put(line)
+        }
+      })().then(() => cb(), cb)
+    },
+    final(cb) {
+      buf += decoder.end()
+      if (buf && !stdin.destroyed) stdin.write(buf)
+      buf = ''
+      stdin.end()
+      cb()
+    },
+  })
+  input.on('error', () => { /* 进程退出时写半截:closed 会告诉对方 */ })
+  const onOutput = line => {
+    if (!pending.size || line.length > 8192 || line.includes('"session/update"')) return
+    const m = parseLine(line)
+    if (!m || m.method !== undefined || m.id == null || !pending.has(m.id)) return
+    const sessionId = pending.get(m.id)
+    pending.delete(m.id)
+    void report(sessionId, m.id, false)
+  }
+  return { input, onOutput, pending }
 }

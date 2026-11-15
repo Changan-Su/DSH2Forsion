@@ -340,7 +340,9 @@ var EXACT = /* @__PURE__ */ new Set([
   "DISPLAY",
   "WAYLAND_DISPLAY",
   "XAUTHORITY",
-  "DBUS_SESSION_BUS_ADDRESS"
+  "DBUS_SESSION_BUS_ADDRESS",
+  // 只给测试:把桥的审批那一环挂到对不上的事件名上,看自检整块退回工作台提示(tests/check-approvals.mjs)
+  "DSH2FORSION_APPROVAL_EVENT"
 ]);
 var PREFIXES = ["LC_", "XDG_"];
 function childEnv(parent, { binDir, extra = {} }) {
@@ -537,12 +539,13 @@ async function newestBackup(backupsDir) {
 import { spawn as spawn2 } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { randomBytes } from "node:crypto";
-import { PassThrough } from "node:stream";
+import { PassThrough, Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { join as join5 } from "node:path";
 var READY = /dsh web: (http:\/\/127\.0\.0\.1:\d+)\/\?token=(\S+)/;
 var LOG_LIMIT = 400;
 var BRIDGE_TIMEOUT_MS = 15e3;
+var TURN_REPORT_MS = 1e3;
 function redact(line) {
   return String(line).replace(/([?&]token=)[^\s&"'<>]+/gi, "$1<redacted>");
 }
@@ -610,7 +613,7 @@ var Sidecar = class {
       const t0 = Date.now();
       const env = childEnv(process.env, {
         binDir: this.paths.runtimePath,
-        extra: { DSH_HOME: this.home, DSH2FORSION_SECRET: this.secret, DSH2FORSION_PARENT_PID: String(process.pid), npm_config_store_dir: join5(this.paths.cache, "pnpm-store"), npm_config_update_notifier: "false", ...this.extraEnv }
+        extra: { DSH_HOME: this.home, DSH2FORSION_SECRET: this.secret, DSH2FORSION_PARENT_PID: String(process.pid), DSH2FORSION_STDIO_NOTICES: "1", npm_config_store_dir: join5(this.paths.cache, "pnpm-store"), npm_config_update_notifier: "false", ...this.extraEnv }
       });
       const args = [...this.preload ? ["--import", pathToFileURL(this.preload).href] : [], this.paths.dshBin, "--profile", PROFILE];
       let child;
@@ -628,12 +631,14 @@ var Sidecar = class {
       const closed = new Promise((r) => {
         exited = r;
       });
-      const conn = { id: `${child.pid ?? "x"}-${this.spawns}-${randomBytes(4).toString("hex")}`, input: child.stdin, output, closed };
+      const turns = promptGate(this, child.stdin);
+      const conn = { id: `${child.pid ?? "x"}-${this.spawns}-${randomBytes(4).toString("hex")}`, input: turns.input, output, closed };
       child.stdin.on("error", () => {
       });
       let settled = false;
       const onLine = (line, fromStdout) => {
         if (fromStdout && line.trimStart().startsWith("{")) {
+          turns.onOutput(line);
           output.write(line + "\n");
           return;
         }
@@ -786,6 +791,70 @@ var Sidecar = class {
     return `${this.base}/?token=${this.token}`;
   }
 };
+var parseLine = (line) => {
+  try {
+    return JSON.parse(line);
+  } catch {
+    return null;
+  }
+};
+function promptGate(sidecar, stdin) {
+  const pending = /* @__PURE__ */ new Map();
+  const decoder = new StringDecoder("utf8");
+  let buf = "";
+  const report = (sessionId, id, active) => sidecar.bridge("/forsion-turns", {
+    method: "POST",
+    body: JSON.stringify({ sessionId, id, active }),
+    signal: AbortSignal.timeout(TURN_REPORT_MS)
+  }).catch((error) => sidecar.log(`[dsh2forsion] reporting a Forsion turn to the bridge failed: ${error?.message ?? error}`));
+  const put = (data) => new Promise((resolve2) => {
+    if (stdin.destroyed || !stdin.writable) return resolve2();
+    if (stdin.write(data)) return resolve2();
+    const done = () => {
+      stdin.off("drain", done);
+      stdin.off("close", done);
+      resolve2();
+    };
+    stdin.once("drain", done);
+    stdin.once("close", done);
+  });
+  const input = new Writable({
+    write(chunk, _enc, cb) {
+      buf += decoder.write(chunk);
+      (async () => {
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i + 1);
+          buf = buf.slice(i + 1);
+          const m = line.includes('"session/prompt"') ? parseLine(line) : null;
+          if (m?.method === "session/prompt" && m.id != null && typeof m.params?.sessionId === "string") {
+            pending.set(m.id, m.params.sessionId);
+            await report(m.params.sessionId, m.id, true);
+          }
+          await put(line);
+        }
+      })().then(() => cb(), cb);
+    },
+    final(cb) {
+      buf += decoder.end();
+      if (buf && !stdin.destroyed) stdin.write(buf);
+      buf = "";
+      stdin.end();
+      cb();
+    }
+  });
+  input.on("error", () => {
+  });
+  const onOutput = (line) => {
+    if (!pending.size || line.length > 8192 || line.includes('"session/update"')) return;
+    const m = parseLine(line);
+    if (!m || m.method !== void 0 || m.id == null || !pending.has(m.id)) return;
+    const sessionId = pending.get(m.id);
+    pending.delete(m.id);
+    void report(sessionId, m.id, false);
+  };
+  return { input, onOutput, pending };
+}
 
 // src/engine/plugins.mjs
 var NPM_NAME = /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i;
@@ -1701,6 +1770,8 @@ function createPlugin() {
         // 用户装的 DSH 插件清单的指纹(名字@版本):界面据此知道清单变了,让宿主重取 Harness 卡上的行
         plugins: { key: (await userPlugins(paths.home)).map((p) => `${p.name}@${p.version}`).sort().join(",") },
         reviews: reviews.list().filter((r) => r.state === "checking" || r.state === "ready").length,
+        // DSH 自己的审批:mode 'forsion' = Forsion 发的轮问到 Forsion 的审批卡;'workbench' = 自检没过,退回工作台提示(reason 写原因)
+        approvals: sidecar.state === "running" ? await sidecar.bridge("/approvals", { signal: AbortSignal.timeout(1500) }).catch(() => null) : null,
         settings: settings(),
         nativeSkills: { supported: typeof ctx.registerSkillProvider === "function" }
       });

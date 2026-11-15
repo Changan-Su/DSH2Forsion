@@ -14,11 +14,21 @@ The goal is native use of DSH agent capabilities in Tangu and WebUI contribution
 | 网页界面 | `dsh web` 页面，令牌换 Cookie | 「DSH 工作台」页签，宿主受控网页容器（本机回环、插件自己的分区、同源导航）；不换肤、不藏元素 | ✅（宿主 #697；旧宿主上提示更新 Forsion） |
 | 选中会话 | 客户端 `uiWorkspace.openSession` | 右键「在 DSH 工作台里打开」：宿主先把这场在常驻进程里开着，工作台地址带 `#d2f-session=<id>`，桥的网页端小模块读到后调 `openSession`（只导航）。工作台开着时宿主只换 # 那段（同页）。整页载入时 DSH 会恢复存着的上次那场、可能晚于落点：载入后 8 秒内落点的，小模块在 0.6 / 1.5 / 3 秒读 DSH 存当前会话的 `localStorage['dsh.sessions.current']`，仍是页面载入时存着的那场就再开一次，落上后用户自己点走就收手——**依赖 DSH 的这个内部存储名**：DSH 改了名就读不到，退化成 3 秒内照样再开两三次（这几秒里用户自己点到别处会被拉回一次） | ✅ |
 | 组合里关掉的基础工具 | 网页界面那份接线按「预设」逐会话挂 | 组合里全局重新打开（agent-instructions、tool-fs、tool-bash、tool-subagent 等 20 行） | ✅ |
-| 插件安装 | 插件页 → `pluginManager.installBundle` | 桥包住它（只拦插件页发起的安装，不拦升级时的装回）；引擎半身装前 / 装后各试启动一次，报告工具、提示词字数、没启动的部分、实测外连主机；用户放行才装；装上后热加载，不重启 DSH | ✅ |
-| DSH 自己的审批 | `approval/request`（网页界面的监听先接走） | **未接**：同一进程里网页界面的监听把审批接走，对话入口收不到（实测）；怎么接待定，属第 2 档 | ⛔ |
+| 插件安装 | 插件页 → `pluginManager.installBundle` | 桥包住它（只拦插件页发起的安装，不拦升级时的装回）；引擎半身装前 / 装后各试启动一次，报告工具、提示词字数、没启动的部分、实测外连主机；用户放行才装；能热加载的装上就生效（genui 实测），DSH 回 `restart-required` 的（skills-manager 1.4.6 实测）要在 Harness 卡上「重启 DSH」 | ✅ |
+| DSH 自己的审批 | `approval/request` 链（网页界面、对话入口各挂一环，网页那环接走就不往下传） | 按这一轮是谁发的分：**Forsion 发的轮**（插件在 ACP 管道上看到 `session/prompt`，送进 DSH 之前先告诉桥），桥在链最前面直接交给对话入口那环 → Forsion 的审批卡，批准 / 拒绝回 DSH；**工作台发的轮**（这一轮第一条消息带网页的 `rpcId`）照旧留在工作台。启动时自检桥依赖的内部结构（见下），对不上就整体退回：审批全留在工作台，Forsion 那一轮的审批托盘里出「DSH 在工作台里等你批准」+「打开工作台」（靠会话落盘的 `approval/asked` / `approval/decided` 发现，不靠那条链），原因写进日志和 `GET /forsion-bridge/approvals`。这场在工作台里已有待批的、Forsion 再发一句（DSH 把它排在后面）时，同一句提示再给 Forsion 一次。子代理的审批在工作台，提示挂到根会话上 | ✅（宿主 #697） |
 | 版本 | `@deepseek-ai/dsh` 的发布标签 | 跟版通道：CI 自检、带校验值的清单（发布先关）；客户端只装验过的，旧版留着、可退回 | ✅（发布未开） |
 | 主题、语言 | `ui-theme` / `locale` 设置 | 跟着 Forsion（桥写进 DSH 设置） | ✅ |
 | 已停 | — | DSH Space、三个打补丁的面板、DSH 模型来源；DSH 插件工具进 Tangu 缺省关 | 停 |
+
+**审批接管依赖的 DSH 内部结构**（`src/dsh-bridge/approvals.js` 头注同一份；DSH 升级时 `check()` 自检与 `npm run test:approvals` 都覆盖，对不上 = 退回提示，不会无声停住）：
+
+1. cordis 事件表 `ctx.events._hooks[事件名]` 是 `{ ctx, callback }` 的数组，waterfall 按数组顺序调，`prepend` 放到最前；`hook.ctx.fiber.name` 是挂它的插件名。
+2. 审批事件名 `approval/request`，参数 `(request, next)`，`request.agent.session.id` = ACP 的 sessionId，带 `callId`。
+3. 对话入口插件名 `acp`，它那一环对不是它开着的会话同步调 `next()`（自检拿一个假会话实调一次）。
+4. `agent/inbox/claimed` 的参数 `{ agent, message, turn }`，网页发的消息 `message.source` 带 `rpcId`。
+5. `session/event` 的参数 `(session, event)`：`session.header.id` / `origin` / `parentSession`；事件 `approval/asked`（`data.id` / `callId` / `toolName`）、`approval/decided`（`data.id`）、`turn/end`（`data.turn`）。
+
+已知边界：Forsion 的一轮排在工作台用 `/plan` 之类（消息来源只有 `{ kind: 'user' }`）起的一轮后面时，那一轮的审批会弹在 Forsion（看得见、不会被吞）。
 
 ## v0.1（下表）
 

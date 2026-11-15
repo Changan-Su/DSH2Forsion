@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "build": "node build.mjs",
-    "check": "node tests/check-unit.mjs && node tests/check-fusion-unit.mjs && node tests/check-bridge.mjs && node tests/check-skills.mjs && node tests/check-session-scope.mjs && node tests/check-models.mjs && node tests/check-native-execution.mjs && node tests/check-native-client.mjs && node tests/check-renderer.mjs && node tests/check-build.mjs && npm run check:runtime-lock",
+    "check": "node tests/check-unit.mjs && node tests/check-fusion-unit.mjs && node tests/check-approvals-unit.mjs && node tests/check-bridge.mjs && node tests/check-skills.mjs && node tests/check-session-scope.mjs && node tests/check-models.mjs && node tests/check-native-execution.mjs && node tests/check-native-client.mjs && node tests/check-renderer.mjs && node tests/check-build.mjs && npm run check:runtime-lock",
     "check:runtime-lock": "node tests/check-runtime-lock.mjs",
     "test:sidecar": "node tests/check-fusion.mjs",
     "test:live": "node tests/check-live.mjs",
@@ -20,7 +20,8 @@
     "report:html": "node tests/report-html.mjs",
     "gen:baseline": "node tests/gen-baseline.mjs",
     "gen:known": "node tests/gen-known.mjs",
-    "test:fusion": "node tests/check-fusion.mjs"
+    "test:fusion": "node tests/check-fusion.mjs",
+    "test:approvals": "node tests/check-approvals.mjs"
   },
   "devDependencies": {
     "esbuild": "0.25.10",

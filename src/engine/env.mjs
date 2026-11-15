@@ -8,6 +8,8 @@ const EXACT = new Set([
   'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'no_proxy', 'all_proxy',
   'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
   'DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY', 'DBUS_SESSION_BUS_ADDRESS',
+  // 只给测试:把桥的审批那一环挂到对不上的事件名上,看自检整块退回工作台提示(tests/check-approvals.mjs)
+  'DSH2FORSION_APPROVAL_EVENT',
 ])
 const PREFIXES = ['LC_', 'XDG_']
 
