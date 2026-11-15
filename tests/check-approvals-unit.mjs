@@ -251,6 +251,25 @@ try {
     assert.equal(seen.length, 1)
   })
 
+  await it('prompt gate: the end of a Forsion turn is reported again until the bridge takes it (a lost end would keep the session "Forsion" for hours)', async () => {
+    const stdin = new PassThrough()
+    stdin.resume()
+    const calls = []
+    let failures = 2
+    const bridge = (_p, opts) => {
+      const body = JSON.parse(opts.body)
+      calls.push(body.active)
+      if (!body.active && failures-- > 0) return Promise.reject(new Error('bridge busy'))
+      return Promise.resolve({ ok: true })
+    }
+    const gate = promptGate({ log() {}, bridge }, stdin, { retryMs: [5, 5, 5] })
+    gate.input.write(JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'session/prompt', params: { sessionId: 'S1', prompt: [] } }) + '\n')
+    await new Promise(r => setTimeout(r, 20))
+    gate.onOutput(JSON.stringify({ jsonrpc: '2.0', id: 7, result: { stopReason: 'end_turn' } }))
+    await new Promise(r => setTimeout(r, 60))
+    assert.deepEqual(calls, [true, false, false, false])
+  })
+
   console.log(`\n${n} passed`)
 } catch (error) {
   console.error(error)

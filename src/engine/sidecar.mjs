@@ -252,13 +252,25 @@ const parseLine = line => { try { return JSON.parse(line) } catch { return null 
  * DSH 要问的审批问到 Forsion 的审批卡),报完再交给 DSH;它的回包从 stdout 出来时报「这一轮完了」(onOutput)。
  * 只看 session/prompt 的请求与回包这一层 ACP 协议,别的原样转过去。
  */
-export function promptGate(sidecar, stdin) {
+export function promptGate(sidecar, stdin, { retryMs = [500, 1000, 2000] } = {}) {
   const pending = new Map() // ACP 请求 id → sessionId
   const decoder = new StringDecoder('utf8')
   let buf = ''
-  const report = (sessionId, id, active) => sidecar.bridge('/forsion-turns', {
+  const post = (sessionId, id, active) => sidecar.bridge('/forsion-turns', {
     method: 'POST', body: JSON.stringify({ sessionId, id, active }), signal: AbortSignal.timeout(TURN_REPORT_MS),
-  }).catch(error => sidecar.log(`[dsh2forsion] reporting a Forsion turn to the bridge failed: ${error?.message ?? error}`))
+  })
+  const failed = error => sidecar.log(`[dsh2forsion] reporting a Forsion turn to the bridge failed: ${error?.message ?? error}`)
+  // 开始只报一次(不能让那句话多等);结束要重试:报丢了桥会把这场当成 Forsion 的轮最多 6 小时,
+  // 其间工作台用 /plan 之类起的轮(来源只有 { kind: 'user' })的审批会被交给对话入口,Forsion 没在跑就回取消 = 吞掉
+  const report = (sessionId, id, active) => post(sessionId, id, active).catch(failed)
+  const reportEnd = async (sessionId, id) => {
+    for (let attempt = 0; ; attempt++) {
+      try { await post(sessionId, id, false); return } catch (error) {
+        if (attempt >= retryMs.length || (sidecar.state !== undefined && sidecar.state !== 'running')) return failed(error) // 进程没了,桥的记录跟着没了
+        await new Promise(resolve => setTimeout(resolve, retryMs[attempt]))
+      }
+    }
+  }
   const put = data => new Promise(resolve => {
     if (stdin.destroyed || !stdin.writable) return resolve()
     if (stdin.write(data)) return resolve()
@@ -298,7 +310,7 @@ export function promptGate(sidecar, stdin) {
     if (!m || m.method !== undefined || m.id == null || !pending.has(m.id)) return
     const sessionId = pending.get(m.id)
     pending.delete(m.id)
-    void report(sessionId, m.id, false)
+    void reportEnd(sessionId, m.id)
   }
   return { input, onOutput, pending }
 }

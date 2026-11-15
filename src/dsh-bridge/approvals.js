@@ -15,7 +15,8 @@
 // 「DSH 在工作台里等你批准」+「打开工作台」)。这条靠会话落盘的 approval/asked / approval/decided 发现,不靠 waterfall:
 // 事件名改了、接管挂不上时照样提示,Forsion 的轮不会无声停住。
 //
-// 依赖的 DSH 内部结构(升级时 check() 和 test:approvals 都要覆盖;PR / MAPPING 里同一份清单):
+// 依赖的 DSH 内部结构(PR / MAPPING 里同一份清单)。1–3 由 check() 在每次启动和接管前查,跟版 CI 把结果记进运行时清单
+// (selfCheck.approvals,只记不拦);4、5 要真跑一轮才看得出,只有 npm run test:approvals 覆盖,换钉死的 DSH 版本时手动跑:
 //  1. cordis 事件表 `ctx.events._hooks[事件名]` 是 `{ ctx, callback }` 的数组,waterfall 按数组顺序调,prepend = 放到最前;
 //     `hook.ctx.fiber.name` 是挂它的插件名(模块的 `name` 导出)。
 //  2. 审批事件名 `approval/request`,参数 `(request, next)`,request 带 `agent`(agent.session.id = ACP 的 sessionId)、`callId`。

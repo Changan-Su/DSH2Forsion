@@ -798,15 +798,28 @@ var parseLine = (line) => {
     return null;
   }
 };
-function promptGate(sidecar, stdin) {
+function promptGate(sidecar, stdin, { retryMs = [500, 1e3, 2e3] } = {}) {
   const pending = /* @__PURE__ */ new Map();
   const decoder = new StringDecoder("utf8");
   let buf = "";
-  const report = (sessionId, id, active) => sidecar.bridge("/forsion-turns", {
+  const post = (sessionId, id, active) => sidecar.bridge("/forsion-turns", {
     method: "POST",
     body: JSON.stringify({ sessionId, id, active }),
     signal: AbortSignal.timeout(TURN_REPORT_MS)
-  }).catch((error) => sidecar.log(`[dsh2forsion] reporting a Forsion turn to the bridge failed: ${error?.message ?? error}`));
+  });
+  const failed = (error) => sidecar.log(`[dsh2forsion] reporting a Forsion turn to the bridge failed: ${error?.message ?? error}`);
+  const report = (sessionId, id, active) => post(sessionId, id, active).catch(failed);
+  const reportEnd = async (sessionId, id) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await post(sessionId, id, false);
+        return;
+      } catch (error) {
+        if (attempt >= retryMs.length || sidecar.state !== void 0 && sidecar.state !== "running") return failed(error);
+        await new Promise((resolve2) => setTimeout(resolve2, retryMs[attempt]));
+      }
+    }
+  };
   const put = (data) => new Promise((resolve2) => {
     if (stdin.destroyed || !stdin.writable) return resolve2();
     if (stdin.write(data)) return resolve2();
@@ -851,7 +864,7 @@ function promptGate(sidecar, stdin) {
     if (!m || m.method !== void 0 || m.id == null || !pending.has(m.id)) return;
     const sessionId = pending.get(m.id);
     pending.delete(m.id);
-    void report(sessionId, m.id, false);
+    void reportEnd(sessionId, m.id);
   };
   return { input, onOutput, pending };
 }

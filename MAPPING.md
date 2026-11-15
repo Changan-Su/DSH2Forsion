@@ -20,7 +20,7 @@ The goal is native use of DSH agent capabilities in Tangu and WebUI contribution
 | 主题、语言 | `ui-theme` / `locale` 设置 | 跟着 Forsion（桥写进 DSH 设置） | ✅ |
 | 已停 | — | DSH Space、三个打补丁的面板、DSH 模型来源；DSH 插件工具进 Tangu 缺省关 | 停 |
 
-**审批接管依赖的 DSH 内部结构**（`src/dsh-bridge/approvals.js` 头注同一份；DSH 升级时 `check()` 自检与 `npm run test:approvals` 都覆盖，对不上 = 退回提示，不会无声停住）：
+**审批接管依赖的 DSH 内部结构**（`src/dsh-bridge/approvals.js` 头注同一份）。1–3 由桥的 `check()` 在每次启动和每次接管前查，跟版 CI 把结果（`forsion` / `workbench` + 原因）记进运行时清单的 `selfCheck.approvals`，只记不拦（对不上是退回提示，不是不能用）；4、5 要真跑一轮才看得出，只有 `npm run test:approvals`（真 DSH × 假模型）覆盖，换钉死的 DSH 版本时要手动跑。4、5 变了的后果：4 变了，工作台发的轮被当成 Forsion 的轮（审批弹在 Forsion，看得见）；5 变了，退回时的提示不出（Forsion 那一轮等到看门狗）。
 
 1. cordis 事件表 `ctx.events._hooks[事件名]` 是 `{ ctx, callback }` 的数组，waterfall 按数组顺序调，`prepend` 放到最前；`hook.ctx.fiber.name` 是挂它的插件名。
 2. 审批事件名 `approval/request`，参数 `(request, next)`，`request.agent.session.id` = ACP 的 sessionId，带 `callId`。

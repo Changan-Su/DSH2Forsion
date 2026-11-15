@@ -75,6 +75,10 @@ try {
   const missing = CORE_TOOLS.filter(t => !check.tools.includes(t))
   note('core tools', missing.length === 0, missing.length ? `missing ${missing.join(', ')}` : `${check.tools.length} tools`)
   self.tools = check.tools
+  // 审批接管的自检(依赖的 DSH 内部结构 1–3,清单见 MAPPING):只记不判 —— 对不上时插件整体退回「在工作台里等你批准」,
+  // 不是不能用,不拦这一版上通道;清单里留着,升级时一眼看得出这一版接不接得了审批。4、5 两条要真跑一轮,在 npm run test:approvals
+  self.approvals = check.approvals ? { mode: check.approvals.mode, reason: check.approvals.reason ?? null } : { mode: 'unknown', reason: 'bridge did not report approvals' }
+  console.log(`approvals: ${self.approvals.mode}${self.approvals.reason ? ` (${self.approvals.reason})` : ''}`)
   // 5. 对话入口：ACP 握手 + 建会话；网页界面认得那场会话
   const conn = sidecar.connection()
   let buf = ''
