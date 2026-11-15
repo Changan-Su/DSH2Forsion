@@ -76,6 +76,7 @@ const STRINGS = {
     channelLatest: '通道上最新的是 {dsh}。',
     pluginsCount: '{n} 个',
     pluginsNone: '还没装',
+    pluginsReading: '正在读取…',
     pluginsManage: '管理',
     pluginsHint: '在工作台里 DSH 自己的「插件」页装；装之前会先体检。',
     openInWorkbench: '在 DSH 工作台里打开',
@@ -173,6 +174,7 @@ const STRINGS = {
     channelLatest: 'The newest on the channel is {dsh}.',
     pluginsCount: '{n}',
     pluginsNone: 'None yet',
+    pluginsReading: 'Reading…',
     pluginsManage: 'Manage',
     pluginsHint: 'Install them on DSH\'s own Plugins page in the workbench; each is checked first.',
     openInWorkbench: 'Open in the DSH workbench',
@@ -573,12 +575,22 @@ const settleLater = () => {
   settleTimer = setTimeout(() => { settleTimer = null; harness?.refresh() }, SETTLE_MS)
 }
 
+// 宿主取行有 5 秒上限，超时或抛错就当这次没有行、之后不会自己再取：每一步都限时，取不到就过一会儿让它再取（有上限）
+const within = (promise, ms) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms))])
+let rowMisses = 0
 async function harnessRows() {
-  const s = await call('/status')
+  let s
+  try { s = await within(call('/status'), 3000) } catch {
+    if (++rowMisses <= 20) settleLater()
+    return []
+  }
+  rowMisses = 0
   notePlugins(s)
   if (s.sidecar?.state === 'starting' || s.job?.running) settleLater()
   let plugins = []
-  try { if (s.runtime?.installed && s.sidecar?.state === 'running') plugins = (await call('/plugins')).plugins ?? [] } catch { plugins = [] }
+  if (s.runtime?.installed && s.sidecar?.state === 'running') {
+    try { plugins = (await within(call('/plugins'), 1500)).plugins ?? [] } catch { plugins = null; settleLater() }
+  }
   const [key, tone] = stateKey(s)
   const refresh = () => harness?.refresh()
   const runtime = {
@@ -603,7 +615,7 @@ async function harnessRows() {
       : undefined,
   }
   const pluginsRow = {
-    id: 'dsh-plugins', label: both('rowPlugins'), text: plugins.length ? both('pluginsCount', { n: plugins.length }) : both('pluginsNone'),
+    id: 'dsh-plugins', label: both('rowPlugins'), text: plugins === null ? both('pluginsReading') : plugins.length ? both('pluginsCount', { n: plugins.length }) : both('pluginsNone'),
     actions: [{ id: 'manage-plugins', label: both('pluginsManage'), run: openWorkbench }],
     hint: both('pluginsHint'),
   }

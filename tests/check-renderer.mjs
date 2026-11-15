@@ -257,6 +257,26 @@ await it('a Harness card read that sees the plugin list changed asks the host to
   assert.equal(reg.refreshed, 1, 'no further re-reads once it settles')
 })
 
+await it('harness rows never outlast the host limit: the engine half not answering yet, or a slow plugin list, returns in time and asks the host to read again', async () => {
+  let statusFails = true
+  let slowPlugins = true
+  const { reg } = setup({ routes: {
+    '/status': () => { if (statusFails) throw new Error('engine not up yet'); return status() },
+    '/plugins': () => slowPlugins ? new Promise(() => {}) : { plugins: [] },
+  } })
+  assert.deepEqual(await reg.harness.rows({ agentSlug: 'a' }), [])
+  await until(() => reg.refreshed === 1, 4000)
+  statusFails = false
+  const t0 = Date.now()
+  const rows = await reg.harness.rows({ agentSlug: 'a' })
+  assert.ok(Date.now() - t0 < 4000, `rows took ${Date.now() - t0} ms`)
+  assert.deepEqual(rows[2].text, { zh: '正在读取…', en: 'Reading…' })
+  await until(() => reg.refreshed === 2, 4000)
+  slowPlugins = false
+  const settled = await reg.harness.rows({ agentSlug: 'a' })
+  assert.deepEqual(settled[2].text, { zh: '还没装', en: 'None yet' })
+})
+
 await it('harness rows when DSH does not match the plugin: danger text and a disabled go-back without an earlier version', async () => {
   const inc = { dshVersion: '0.2.3', reason: 'x' }
   const { reg } = setup({ routes: { '/status': status({ fusion: { ...status().fusion, incompatible: inc } }) } })
