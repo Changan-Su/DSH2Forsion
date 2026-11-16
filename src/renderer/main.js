@@ -722,7 +722,7 @@ ctx.registerView({
     const say = (st, title, body, button) => {
       state = st
       note.dataset.state = st
-      note.replaceChildren(h('div', { class: 'd2f-rail-note-title' }, title), h('div', { class: 'd2f-rail-note-body' }, body), button ?? null)
+      note.replaceChildren(h('div', { class: 'd2f-rail-note-title' }, title), h('div', { class: 'd2f-rail-note-body' }, body), ...(button ? [button] : []))
       note.hidden = false
       box.hidden = true
     }

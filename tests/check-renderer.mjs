@@ -123,6 +123,7 @@ await it('rail page: follows the active conversation — files first, the page D
   setActive({ phase: 'idle', sessionId: 'f2' })
   await until(() => el.querySelector('.d2f-rail-note')?.dataset.state === 'no-session')
   assert.match(el.textContent, /发一句之后，这里显示 DSH 的页面/)
+  assert.equal(el.querySelector('.d2f-rail-note').textContent, '还没开始发一句之后，这里显示 DSH 的页面。', 'a note without a button draws no stray text')
   assert.equal(reg.surfaces.length, 1)
   // 换回第一场：同一个容器只换 #，页不指定（DSH 自己记着这一场看的哪页）
   setActive({ phase: 'idle', sessionId: 'f1' })
