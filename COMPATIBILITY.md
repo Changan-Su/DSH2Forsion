@@ -1,8 +1,27 @@
 # 兼容性 / Compatibility
 
-钉死 DSH `0.2.1-rc.2`。数据来自 M0 兼容矩阵（2026-10-18，Linux x64），原始结果在 [`spike/m0/results/2026-10-18/`](spike/m0/results/2026-10-18/)，随包发的评级在 [`compat/known.json`](compat/known.json)。
+0.2.0 起钉死 DSH `0.2.2-rc.3`。下面的 M0 矩阵是在 `0.2.1-rc.2` 上跑的，没在 0.2.2-rc.3 上重跑；0.2.0 的装前体检只在评级对应的 DSH 版本上才参考它（`known.json` 的 `matrixDsh`），其余一律看那次实测。
+
+0.2.0 在融合组合上实跑（官方 DSH 0.2.2-rc.3、全新隔离目录、本机假模型，`npm run test:fusion`，2026-11-15）：
+
+| 插件 | 装前体检报告 | 装上后 |
+|---|---|---|
+| `dsh-genui@0.3.3` | 0 个工具；提示词 +57,982 字（`genui:cards` 一节）；各部分都启动；启动时没有外连 | 热加载，DSH 没重启，开着的会话还在 |
+| `dsh-free-search@0.9.48` | 9 个工具；提示词 +2,003 字（`free-search:engines`）；各部分都启动；启动时连了 `www.cloudflare.com` | 同上 |
+
+拒绝时插件没有进组合（负对照）。`@michengai/dsh-skills-manager@1.4.6` 还没在融合组合上跑。
+
+v0.1：钉死 DSH `0.2.1-rc.2`。数据来自 M0 兼容矩阵（2026-10-18，Linux x64），原始结果在 [`spike/m0/results/2026-10-18/`](spike/m0/results/2026-10-18/)，随包发的评级在 [`compat/known.json`](compat/known.json)。
 
 ## 评级口径
+
+当前开发桥为 **0.1.6**，新增原生三面板、看板 Tangu 执行、项目技能、MCP、模型来源及按原生会话隔离的工具/推理上下文。需要含 Genesis #392 / #395 的 managed 本机宿主构建，尚未发布桌面版本。下面的 M0 与早期 GUI 数字保留其原始范围；本轮复跑命令与限定场景见 [SCENARIOS.md](SCENARIOS.md)。
+
+Development bridge **0.1.6** adds three original plugin panels, native Tangu task execution, project skills, MCP, model sources and session-scoped attribution. It requires a managed local host containing Genesis #392/#395, not yet a desktop release. Historical results below retain their original scope. [SCENARIOS.md](SCENARIOS.md) documents the new independent checks.
+
+`dsh-context@0.73.2` 与 `@michengai/dsh-archive-manager@1.1.2` 依赖 DSH 完整历史/归档，当前不映射 Tangu 历史。Billion 的真实压缩验证需单独证明代理接管、输入压缩与事实召回；归属基础设施通过不等于所有上下文插件透明兼容，详见 [context-adapters.md](compat/context-adapters.md)。
+
+Full DSH history/archive consumers are not transparent Tangu history adapters. Billion requires independent evidence of interception, transformed input and recall. Session attribution alone does not establish general context-extension compatibility.
 
 | 评级 | 含义 |
 |---|---|
@@ -11,6 +30,28 @@
 | 🔴 不行 | 装不上，或者装上以后 DSH 起不来 / DSH 网页打不开 |
 
 **「装载通过」不等于「功能可用」**，只说明插件激活了。功能级验收（逐个点操作）是 M1 的事。
+
+## 功能级验收（Windows，2026-10-31）
+
+**目标口径**：DSH Agent 能力应直接给 Tangu 使用，WebUI 贡献应直接给 Forsion 使用。以下“DSH 页面可见/操作”只算底座验证，不代表无缝 WebUI 兼容。技能文件创建也不代表 Tangu 已发现并使用该技能。
+
+**Target scope:** agent capabilities must be usable in Tangu and WebUI contributions in Forsion. Embedded-page checks below are runtime baselines, not native UI compatibility. Creating a DSH skill file does not prove Tangu discovers or uses that skill.
+
+内部桥 `0.1.4` 的热门插件流程经 GPT 6 Luna 实测 4/4（包含引擎发现）：`dsh-free-search@0.9.26` 返回真实 npm 来源，`task-board@0.4.7` 创建/读取任务且重启后由新 Tangu 会话修改，`dsh-skills-manager@1.2.24` 经审批创建实际 Markdown 文件。Windows sidecar 14/14 验证 DSH 内层审批审计、重启轮次、异常及生命周期；详细版本和边界见 [SCENARIOS.md](SCENARIOS.md)。
+
+Bridge `0.1.4` passed 4/4 popular-plugin live checks with GPT 6 Luna, including discovery: real npm search, task creation/read/update across restart, and an approval-requiring skill file creation. Windows sidecar passed 14/14 checks, including DSH approval audit events and persisted turn numbering. These results do not expand the UI or skill-consumption scope described above.
+
+在真实 Forsion / Tangu 引擎、DSH `0.2.1-rc.2` 上，用 `codex/gpt-6-luna` 验证下列限定场景。它们不改变上面的装载评级，也不代表这些插件的所有功能都通过。
+
+| 样本 | 已验证范围 |
+|---|---|
+| `@linxin666/dsh-client-ui-task-board@0.4.7` | 真实模型经 Tangu 创建、读取、修改、查询本地任务；任务标题和修改后的描述在 DSH 看板详情中可见。未运行或调度任务。 |
+| `dsh-trae-skin@0.2.0` | 真实界面保存浅色与自定义字标，刷新及整个 Forsion 重启后保留；管理页卸载后效果消失，撤销后恢复插件与原设置。 |
+| 本地 `dsh2forsion-live-probe` 夹具 | 批准后按选定工作目录执行；DSH 重启后仍保持目录；拒绝后零执行；取消后停止正在执行的任务。真实桌面聊天中点击批准后仅执行一次，工具结果回显且模型正常结束。通过工作区记录、模型事件和界面双重核对。 |
+
+本轮完整 Windows GUI 为 18/18，真模型为 6/6。内部桥 `0.1.2` 使用 DSH 的 `resumeSessionId` 参数恢复已持久化会话；旧桥的负对照复现了重启后工作目录回落到用户主目录的问题。以上不扩大到其他平台的图形界面或第三方插件全部功能。
+
+可重复执行入口是 `npm run test:live` 和 `npm run test:gui`，前置和完整桌面选项见 [README](README.md#开发--development)。真模型测试会使用已有 Codex 登录并消耗额度。
 
 ## 结果
 

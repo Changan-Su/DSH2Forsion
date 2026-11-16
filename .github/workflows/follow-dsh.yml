@@ -1,0 +1,66 @@
+name: follow-dsh
+
+# 跟版通道：每天看 @deepseek-ai/dsh 的发布标签，新版就生成运行时锁、全新装、起融合组合自检，出带校验值的运行时清单。
+# 清单先只作为构件留在这次运行里。发布到通道（Release「dsh-channel」）那一步写好了但关着：要打开先经维护者同意。
+# schedule 只在默认分支上触发；改到这份流程或自检脚本的 PR 也跑一次（用随包那一版，验证流程本身）。
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'DSH version to check (default: the newest dist-tag)'
+        required: false
+  pull_request:
+    paths:
+      - '.github/workflows/follow-dsh.yml'
+      - 'tests/follow-dsh.mjs'
+      - 'src/engine/**'
+      - 'src/dsh-bridge/**'
+
+permissions:
+  contents: read
+
+jobs:
+  follow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Pick the DSH version
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "version=$(node -p "require('./src/runtime/package.json').dependencies['@deepseek-ai/dsh']")" >> "$GITHUB_OUTPUT"
+            echo "newer=false" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "newer=true" >> "$GITHUB_OUTPUT"
+          else
+            node tests/follow-dsh.mjs pick >> "$GITHUB_OUTPUT"
+          fi
+      - name: Lock, install fresh and self-check the fused profile
+        if: steps.pick.outputs.newer == 'true' || github.event_name != 'schedule'
+        run: node tests/follow-dsh.mjs check "${{ steps.pick.outputs.version }}" channel-out
+      - name: Keep the manifest
+        if: always() && (steps.pick.outputs.newer == 'true' || github.event_name != 'schedule')
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-manifest-${{ steps.pick.outputs.version }}
+          path: |
+            channel-out/runtime-manifest.json
+            channel-out/runtime-manifest.json.sha256
+          if-no-files-found: ignore
+      # 发布到通道：关着。打开前由维护者确认（把 false 换成 github.event_name != 'pull_request'，并给 contents: write）。
+      - name: Publish to the channel (off)
+        if: ${{ false }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload dsh-channel channel-out/runtime-manifest.json channel-out/runtime-manifest.json.sha256 --clobber

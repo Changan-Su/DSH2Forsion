@@ -1,0 +1,16 @@
+{
+  "package": "@linxin666/dsh-client-ui-task-board",
+  "version": "0.4.7",
+  "license": "Apache-2.0",
+  "patchVersion": 2,
+  "files": {
+    "lib/index.js": "863c7a195748802c7a54e099efef14c73af98477ad83aa4a56b8d0c490c9e209",
+    "lib/client.js": "364bad5afc8e770ed09bbfe1f320b7514229f85e050b62bf540a1949dbf62fe9"
+  },
+  "layout": {
+    "package": "@deepseek-ai/dsh-client-ui-layout",
+    "version": "0.2.1-rc.2",
+    "license": "MIT",
+    "clientSha256": "686fb83c91c8ff8d03c365bb666ef34dacc3dd110eb768deacbc7998b885c8c1"
+  }
+}

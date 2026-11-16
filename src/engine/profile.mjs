@@ -1,7 +1,7 @@
 // profile 层：建 `forsion` profile、装 / 升级桥、跑 `dsh plugin …`（DSH 自己转给 pnpm）。
 import { existsSync, readFileSync } from 'node:fs'
-import { cp, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import { BRIDGE_PACKAGE, PROFILE } from './constants.mjs'
 import { childEnv } from './env.mjs'
 import { run } from './proc.mjs'
@@ -9,7 +9,7 @@ import { run } from './proc.mjs'
 /** 跑一条 `dsh …`；DSH_HOME 指向给定的 home（主 profile 或试启动用的临时 home）。 */
 export function dsh(paths, home, args, { log, signal, timeoutMs = 900_000 } = {}) {
   const env = childEnv(process.env, {
-    binDir: paths.nodeBinDir,
+    binDir: paths.runtimePath,
     extra: { DSH_HOME: home, npm_config_store_dir: join(paths.cache, 'pnpm-store'), npm_config_update_notifier: 'false' },
   })
   return run(paths.nodeBin, [paths.dshBin, ...args], { cwd: home, env, timeoutMs, onLine: log, signal })
@@ -30,6 +30,22 @@ function installedVersion(home, name) {
   try { return JSON.parse(readFileSync(join(profileDir(home), 'node_modules', ...name.split('/'), 'package.json'), 'utf8')).version } catch { return null }
 }
 
+// file: dependencies may be rebuilt without changing the public package version.
+// Compare shipped files, not just package.json, so a stale bridge cannot pass boot.
+async function bridgeFilesMatch(source, installed) {
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    if (entry.name === 'node_modules') continue
+    const from = join(source, entry.name), to = join(installed, entry.name)
+    if (entry.isDirectory()) { if (!await bridgeFilesMatch(from, to)) return false }
+    else if (entry.isFile()) {
+      let actual
+      try { actual = await readFile(to) } catch (error) { if (error.code === 'ENOENT') return false; throw error }
+      if (!(await readFile(from)).equals(actual)) return false
+    }
+  }
+  return true
+}
+
 /**
  * 桥随插件包发（bridgeDir），装成 file: 依赖。同版本号的 file: 包 pnpm 判「已是最新」不更新，
  * 所以版本不同就先 remove 再 add（M0 踩过）。
@@ -37,10 +53,12 @@ function installedVersion(home, name) {
 export async function ensureBridge(paths, home, bridgeDir, opts = {}) {
   const want = JSON.parse(await readFile(join(bridgeDir, 'package.json'), 'utf8')).version
   const have = installedVersion(home, BRIDGE_PACKAGE)
-  if (have === want) return false
+  const installed = join(profileDir(home), 'node_modules', BRIDGE_PACKAGE)
+  if (have === want && await bridgeFilesMatch(bridgeDir, installed)) return false
   if (have) await dsh(paths, home, ['plugin', '--profile', PROFILE, 'remove', BRIDGE_PACKAGE], opts)
   const r = await dsh(paths, home, ['plugin', '--profile', PROFILE, 'add', '--ignore-scripts', `file:${bridgeDir}`], opts)
   if (r.code !== 0) throw new Error(`bridge install failed: ${r.out.slice(-600)}`)
+  if (!await bridgeFilesMatch(bridgeDir, installed)) throw new Error('Installed bridge differs from the shipped build')
   return true
 }
 
@@ -87,6 +105,26 @@ export async function copyProfileFiles(fromDir, toDir) {
     if (existsSync(src)) await cp(src, join(toDir, f))
     else await rm(join(toDir, f), { force: true })
   }
+}
+
+/**
+ * pnpm 的锁把 file: 依赖（桥）记成相对组合目录的路径。组合拷到别处（体检用的临时目录，和用户 DSH 目录不在同一层）时
+ * 把这些相对路径换算成相对新目录的，不然 pnpm 找不到桥。纯函数，单测覆盖。
+ */
+export function relocateLock(text, fromDir, toDir) {
+  return String(text).replace(/(file:|directory: )(\.\.?\/[^\s(),}'"]*)/g, (_, prefix, rel) => {
+    const abs = resolve(fromDir, rel)
+    let next = relative(toDir, abs).split('\\').join('/')
+    if (!next.startsWith('.') && !isAbsolute(next)) next = `./${next}`
+    return `${prefix}${next}`
+  })
+}
+
+/** 把组合的声明文件拷到另一个 DSH_HOME 下（体检）：锁里的相对路径一并换算。 */
+export async function copyProfileTo(fromHome, toHome) {
+  await copyProfileFiles(profileDir(fromHome), profileDir(toHome))
+  const lock = join(profileDir(toHome), 'pnpm-lock.yaml')
+  if (existsSync(lock)) await writeFile(lock, relocateLock(await readFile(lock, 'utf8'), profileDir(fromHome), profileDir(toHome)))
 }
 
 export async function newestBackup(backupsDir) {

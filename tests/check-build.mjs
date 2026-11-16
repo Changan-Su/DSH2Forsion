@@ -2,12 +2,14 @@
 // 兼容数据和钉死的 DSH 版本对得上、清单文案双语。
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BRIDGE_PACKAGE, DSH_VERSION, PLUGIN_ID } from '../src/engine/constants.mjs'
+import { build } from 'esbuild'
+import { BRIDGE_PACKAGE, DSH_VERSION, PLUGIN_ID, PNPM_VERSION } from '../src/engine/constants.mjs'
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..')
 const plugin = join(repo, 'plugin')
@@ -40,27 +42,40 @@ await it('plugin/ is the current build of src/', async () => {
   }
 })
 
-await it('versions agree across package.json, manifest, engine and space; bridge name matches', async () => {
+await it('versions agree across package.json, manifest, engine and channel; bridge name and version match', async () => {
   const pkg = await json(join(repo, 'package.json'))
   const manifest = await json(join(plugin, 'manifest.json'))
   const tp = await json(join(engine, 'tangu-plugin.json'))
   const enginePkg = await json(join(engine, 'package.json'))
-  const space = await json(join(plugin, 'spaces/dsh/space.json'))
-  for (const [label, v] of [['manifest', manifest.version], ['tangu-plugin.json', tp.version], ['engine package.json', enginePkg.version], ['space.json', space.version]]) {
+  const { PLUGIN_VERSION } = await import('../src/engine/channel.mjs')
+  for (const [label, v] of [['manifest', manifest.version], ['tangu-plugin.json', tp.version], ['engine package.json', enginePkg.version], ['channel.mjs PLUGIN_VERSION', PLUGIN_VERSION]]) {
     assert.equal(v, pkg.version, label)
   }
+  assert.ok(!existsSync(join(plugin, 'spaces')), 'tier 1 has no DSH Space: the workbench is a tab')
   assert.equal(manifest.id, PLUGIN_ID)
   assert.equal(tp.id, PLUGIN_ID)
   assert.equal(enginePkg.type, 'module')
   const bridge = await json(join(engine, 'dsh-bridge/package.json'))
   assert.equal(bridge.name, BRIDGE_PACKAGE)
   assert.equal(bridge.dsh?.bundle?.patch, './cordis.patch.yml')
+  // 网页端只有一个落点小模块：只导航（uiWorkspace.openSession），不往 DSH 界面里加东西（不注入 slots）
+  assert.equal(bridge.dsh?.client?.platform, 'web')
+  assert.equal(bridge.exports?.['./client'], './client.js')
+  const clientSrc = await readFile(join(engine, 'dsh-bridge/client.js'), 'utf8')
+  assert.ok(clientSrc.includes("inject: ['uiWorkspace', 'sessions']"), 'the client only needs navigation services')
+  assert.ok(!/slots|createElement|<style|\.css/.test(clientSrc), 'the client adds nothing to the DSH web interface')
+  const bridgeSrc = await readFile(join(engine, 'dsh-bridge/index.js'), 'utf8')
+  assert.equal(/BRIDGE_VERSION = '([^']+)'/.exec(bridgeSrc)?.[1], bridge.version, 'bridge index.js BRIDGE_VERSION')
+  assert.ok(existsSync(join(engine, 'dsh-bridge/trial-net-hook.mjs')), 'trial network hook ships with the bridge')
 })
 
 await it('the engine bundle imports only Node built-ins', async () => {
-  // JSDoc 里的 import('./x.mjs') 类型注解不算
-  const src = (await readFile(join(engine, 'dist/index.js'), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '')
-  const specs = [...src.matchAll(/(?:^|\n)\s*import\s[^'"]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(m => m[1] ?? m[2] ?? m[3])
+  // Parse actual dependencies. Embedded upstream patch text contains browser
+  // imports inside string literals; regex scanning mistakes those for host code.
+  const src = await readFile(join(engine, 'dist/index.js'), 'utf8')
+  const parsed = await build({ stdin: { contents: src, resolveDir: join(engine, 'dist'), sourcefile: 'index.js' },
+    bundle: true, packages: 'external', platform: 'node', format: 'esm', write: false, metafile: true, logLevel: 'silent' })
+  const specs = Object.values(parsed.metafile.outputs).flatMap(output => output.imports.map(item => item.path))
   assert.ok(specs.length > 0)
   const builtins = new Set(builtinModules)
   for (const s of specs) assert.ok(s.startsWith('node:') || builtins.has(s), `non-builtin import ${s}`)
@@ -73,6 +88,29 @@ await it('compat data is for the pinned DSH version', async () => {
   const known = await json(join(engine, 'compat/known.json'))
   assert.equal(known.dsh, DSH_VERSION)
   for (const e of known.exemptions) assert.equal(known.plugins[e]?.exemption, true, `exemption ${e} is not a graded plugin`)
+})
+
+await it('runtime lock pins the complete DSH and pnpm tree to official integrity values', async () => {
+  const pkg = await json(join(engine, 'runtime/package.json'))
+  const lock = await json(join(engine, 'runtime/package-lock.json'))
+  assert.equal(lock.lockfileVersion, 3)
+  assert.deepEqual(pkg.dependencies, { '@deepseek-ai/dsh': DSH_VERSION, pnpm: PNPM_VERSION })
+  assert.deepEqual(lock.packages[''].dependencies, pkg.dependencies)
+  for (const [name, version] of Object.entries(pkg.dependencies)) {
+    assert.equal(lock.packages[`node_modules/${name}`].version, version)
+  }
+  for (const [path, pkg] of Object.entries(lock.packages)) {
+    if (!path) continue
+    assert.match(pkg.resolved, /^https:\/\/registry\.npmjs\.org\//, path)
+    assert.match(pkg.integrity, /^sha512-[A-Za-z0-9+/]+=*$/, path)
+    assert.ok(pkg.version && !pkg.link, path)
+  }
+  // Generating a lock on one OS must not discard the other supported native builds.
+  for (const os of ['darwin', 'linux', 'win32']) {
+    for (const cpu of ['x64', 'arm64']) {
+      assert.ok(Object.values(lock.packages).some(p => p.os?.includes(os) && p.cpu?.includes(cpu)), `${os}-${cpu}`)
+    }
+  }
 })
 
 await it('manifest text is bilingual and says it is not made by DeepSeek', async () => {

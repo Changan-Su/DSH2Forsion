@@ -2,11 +2,12 @@ name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
       platforms:
-        description: 'Run the end-to-end sidecar test on macOS and Windows too'
+        description: 'Run the end-to-end fusion test on macOS and Windows too'
         type: boolean
         default: true
 
@@ -25,7 +26,8 @@ jobs:
         run: git diff --exit-code -- plugin
       - run: npm run check
 
-  # 真下载运行时（约 1.1 GB）、真起 DSH、真装插件。Linux 每次跑；macOS / Windows 手动触发时跑。
+  # 真下载运行时（约 1.1 GB）、真起融合组合（网页界面 + 对话入口）、ACP 建会话、在 DSH 插件页装 dsh-genui 并走装前体检。
+  # Linux 每次跑；macOS / Windows 手动触发时跑。
   sidecar:
     needs: check
     strategy:
@@ -42,6 +44,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm run test:sidecar
+      - run: npm run test:fusion
         env:
           DSH2FORSION_FRESH: '1'

@@ -1,6 +1,7 @@
 {
- "dsh": "0.2.1-rc.2",
- "note": "load-level evidence only (install + start + no activation errors); not a functional verification",
+ "dsh": "0.2.2-rc.3",
+ "matrixDsh": "0.2.1-rc.2",
+ "note": "load-level evidence from the M0 matrix on DSH 0.2.1-rc.2 (install + start + no activation errors); not re-run on 0.2.2-rc.3, so the install review does not use these grades on it",
  "plugins": {
   "dsh-apradar@0.1.2": {
    "grade": "load-ok",
