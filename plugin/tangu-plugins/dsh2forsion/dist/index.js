@@ -1887,6 +1887,16 @@ function createPlugin() {
         };
         router.post("/workbench", (_req, res) => send(res, workbench));
         router.post("/space", (_req, res) => send(res, workbench));
+        router.post("/rail", (_req, res) => send(res, async () => {
+          const wb = await workbench();
+          if (wb.incompatible) return wb;
+          const { nonce } = await sidecar.bridge("/rail/nonce", { method: "POST", body: "{}" });
+          return { ...wb, nonce };
+        }));
+        router.post("/rail/report", (req, res) => send(res, async () => {
+          if (sidecar.state !== "running") return { known: false, report: null, stopped: true };
+          return sidecar.bridge(`/rail?nonce=${encodeURIComponent(String(req.body?.nonce ?? ""))}`);
+        }));
         router.post("/hold", (req, res) => send(res, async () => {
           if (typeof ctx.sdk.engines?.hold !== "function") throw new Error("Update Forsion to open conversations in the DSH workbench");
           if (sidecar.state !== "running") await start();

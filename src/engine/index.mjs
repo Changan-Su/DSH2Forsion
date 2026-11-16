@@ -298,6 +298,18 @@ export function createPlugin() {
         }
         router.post('/workbench', (_req, res) => send(res, workbench))
         router.post('/space', (_req, res) => send(res, workbench))
+        // 右栏页（第 2 档）：同一份登录地址 + 一个回报口令（网页凭它把「这一页开没开成」报回桥，见 dsh-bridge/rail.js）。
+        // 地址里的 # 由 Forsion 那半拼（页、会话、口令），这里不拼：令牌只在登录那一下用，网页登录后自己去掉。
+        router.post('/rail', (_req, res) => send(res, async () => {
+          const wb = await workbench()
+          if (wb.incompatible) return wb
+          const { nonce } = await sidecar.bridge('/rail/nonce', { method: 'POST', body: '{}' })
+          return { ...wb, nonce }
+        }))
+        router.post('/rail/report', (req, res) => send(res, async () => {
+          if (sidecar.state !== 'running') return { known: false, report: null, stopped: true }
+          return sidecar.bridge(`/rail?nonce=${encodeURIComponent(String(req.body?.nonce ?? ''))}`)
+        }))
         // 右键菜单「在 DSH 工作台里打开」：先让宿主在常驻进程里把这一场开着留给工作台
         router.post('/hold', (req, res) => send(res, async () => {
           if (typeof ctx.sdk.engines?.hold !== 'function') throw new Error('Update Forsion to open conversations in the DSH workbench')

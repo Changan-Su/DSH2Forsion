@@ -8,13 +8,15 @@ import { mcpSnapshot } from './mcp.js'
 import { SessionScopePool } from './session-scope.js'
 import { listModels, resolveModel, readModelBody, streamModelResponse } from './models.js'
 import { APPROVAL_EVENT, createApprovalRouter } from './approvals.js'
+import { createRailReports } from './rail.js'
 
 export const name = 'dsh2forsion-bridge'
 export const inject = ['tools', 'webServer', 'systemPrompt', 'sessionProjections', 'skills', 'llm']
 
 const PREFIX = '/forsion-bridge'
-const BRIDGE_VERSION = '0.2.0'
+const BRIDGE_VERSION = '0.3.0'
 const MAX_BODY = 1 << 20
+const MAX_RAIL_BODY = 64 << 10
 const APPROVAL_TTL_MS = 60_000
 
 export function apply(ctx) {
@@ -55,10 +57,12 @@ export function apply(ctx) {
   const scopes = new SessionScopePool(ctx)
   // 工作台里 DSH 自己的插件页装插件时，先停在这里等 Forsion 体检、问过用户（融合插件第 1 档）。
   const gate = installGate(ctx, log)
+  // Forsion 右栏里的 DSH 页（第 2 档，client.js 的右栏模式）做没做成，凭口令报回这里（rail.js）
+  const rail = createRailReports()
   const dispose = ctx.webServer.register({
     kind: 'prefix',
     path: PREFIX,
-    handler: (req, res) => handle(ctx, { secret, approved, agents, scopes, gate, approvals }, req, res).catch(error => {
+    handler: (req, res) => handle(ctx, { secret, approved, agents, scopes, gate, approvals, rail }, req, res).catch(error => {
       if (!res.headersSent && !res.destroyed) send(res, 500, { error: String(error?.message ?? error) })
     }),
   })
@@ -183,8 +187,15 @@ function watchParent(ctx, log) {
 }
 
 async function handle(ctx, state, req, res) {
-  if (!authorized(req.headers['x-dsh2forsion-secret'], state.secret)) return send(res, 401, { error: 'unauthorized' })
   const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+  // 唯一不要启动密钥的口子：右栏页（DSH 自己的网页）凭地址里的口令报回做没做成。只写这一份回报，别的什么都碰不到。
+  if (req.method === 'POST' && path === `${PREFIX}/rail/report`) {
+    const nonce = String(req.headers['x-d2f-rail-nonce'] ?? '')
+    let body = null
+    try { body = JSON.parse(await readBody(req, MAX_RAIL_BODY)) } catch { return send(res, 400, { error: 'bad report' }) }
+    return state.rail.accept(nonce, body) ? send(res, 200, { ok: true }) : send(res, 403, { error: 'unknown nonce or report' })
+  }
+  if (!authorized(req.headers['x-dsh2forsion-secret'], state.secret)) return send(res, 401, { error: 'unauthorized' })
   if (req.method === 'GET' && path === `${PREFIX}/health`) return send(res, 200, { ok: true })
   if (path.startsWith(`${PREFIX}/models`)) {
     const controller = new AbortController()
@@ -232,6 +243,11 @@ async function handle(ctx, state, req, res) {
     return send(res, 200, { ok, approvals: state.approvals.status() })
   }
   if (req.method === 'GET' && path === `${PREFIX}/approvals`) return send(res, 200, state.approvals.status())
+  // 右栏页：引擎半身要一个口令（放进右栏页地址的 #），之后凭口令取网页报回来的结果
+  if (req.method === 'POST' && path === `${PREFIX}/rail/nonce`) return send(res, 200, { nonce: state.rail.issue() })
+  if (req.method === 'GET' && path === `${PREFIX}/rail`) {
+    return send(res, 200, state.rail.get(new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('nonce') ?? ''))
+  }
   if (req.method === 'GET' && path === `${PREFIX}/fusion/installs`) return send(res, 200, { armed: state.gate.armed, pending: state.gate.list() })
   if (req.method === 'POST' && path === `${PREFIX}/fusion/installs/decide`) {
     const body = JSON.parse(await readBody(req))
@@ -403,13 +419,13 @@ function authorized(header, secret) {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
-function readBody(req) {
+function readBody(req, max = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0
     const chunks = []
     req.on('data', chunk => {
       size += chunk.length
-      if (size > MAX_BODY) { reject(new Error('body too large')); req.destroy(); return }
+      if (size > max) { reject(new Error('body too large')); req.destroy(); return }
       chunks.push(chunk)
     })
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8') || '{}'))
