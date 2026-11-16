@@ -58,7 +58,7 @@ The goal is native use of DSH agent capabilities in Tangu and WebUI contribution
 | 项目技能 | 官方 filesystem provider | 当前项目最近 git 根的 `.dsh/skills`、`.agents/skills`，无 git 时用 cwd；来源与根哈希隔离同名技能，校验实际路径和禁用 | bridge 0.1.6 |
 | MCP | 官方 tools/schema 与提示分节 | 实时目录和调用，原生 always 审批；保留结构化资源及受支持的图片，音频/blob/私有附件返回明确边界 | bridge 0.1.6 |
 | 模型来源 | DSH `llm` 目录与流 | Tangu `registerModelProvider` 命名空间；单次推理保留文本、推理、工具参数及实际用量，原生循环处理工具和审批；撤销与远程调用受限 | bridge 0.1.6；新版宿主 |
-| 子进程、原生依赖 | `node-pty`、`koffi` 等 | 运行时只给 DSH 自己的三个原生包跑构建；插件一律 `--ignore-scripts` | ✅ |
+| 子进程、原生依赖 | `node-pty`、`koffi` 等 | 运行时只给 DSH 自己的三个原生包跑构建；装前体检一律 `--ignore-scripts`，并读 pnpm 记下的待批构建写进体检卡（要允许 / 已允许 / 组合里不跑）。真装时由 DSH 的 pnpm 管：没允许过的构建脚本报错装不上，允许入口是 DSH 插件页「允许这些脚本并重试」；插件不替用户允许 | ✅ |
 
 ## 当前适配的验收 / Adapter acceptance
 

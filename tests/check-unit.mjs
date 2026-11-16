@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 import { DSH_VERSION, NODE_VERSION, PNPM_VERSION } from '../src/engine/constants.mjs'
 import { childEnv } from '../src/engine/env.mjs'
 import { layout, nodePlatform } from '../src/engine/layout.mjs'
-import { judgeTrial, specName } from '../src/engine/plugins.mjs'
+import { allowBuildsDecisions, buildKeyCovers, classifyBuilds, judgeTrial, specName } from '../src/engine/plugins.mjs'
 import { installRuntime, runtimeInstalled, sources } from '../src/engine/runtime.mjs'
 import { Sidecar } from '../src/engine/sidecar.mjs'
 import { promptText, renderResult, tanguToolName, thirdPartySections } from '../src/engine/tools.mjs'
@@ -174,6 +174,28 @@ await it('a sidecar whose spawn fails asynchronously still stops at once (no han
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+await it('build scripts a plugin brings: allowBuilds decisions, key matching, classification (unread settings stay unknown)', async () => {
+  const d = allowBuildsDecisions('packages: []\nallowBuilds:\n  koffi: false\n  "esbuild@0.25.0": true\n  # note\n  sharp@0.33.0: set this to true or false\nonlyBuiltDependencies: []\n')
+  assert.deepEqual([...d], [['koffi', false], ['esbuild@0.25.0', true]])
+  assert.deepEqual([...allowBuildsDecisions('packages: []\n')], [])
+  assert.deepEqual([...allowBuildsDecisions('')], [])
+  assert.equal(allowBuildsDecisions('allowBuilds: { koffi: true }\n'), null, 'flow style is not read: unknown, not empty')
+  assert.equal(allowBuildsDecisions('allowBuilds:\n  pkg@git+https://h/x.git: true\n'), null, 'a key it cannot read makes the whole set unknown')
+  assert.ok(buildKeyCovers('koffi', 'koffi@3.1.1'))
+  assert.ok(buildKeyCovers('koffi@3.1.1', 'koffi@3.1.1'))
+  assert.ok(buildKeyCovers('koffi@3.1.0 || 3.1.1', 'koffi@3.1.1'))
+  assert.ok(buildKeyCovers('@s/x', '@s/x@2.0.0'))
+  assert.ok(!buildKeyCovers('koffi@3.1.0', 'koffi@3.1.1'))
+  assert.ok(!buildKeyCovers('koff', 'koffi@3.1.1'))
+  assert.ok(!buildKeyCovers('@s/x', '@s/xy@2.0.0'))
+  const added = ['koffi@3.1.1', 'esbuild@0.25.0', 'sharp@0.33.0', '@s/x@2.0.0']
+  assert.deepEqual(classifyBuilds({ added, decisions: d, approved: ['@s/x@2.0.0'] }), [
+    { key: 'koffi@3.1.1', state: 'skipped' }, { key: 'esbuild@0.25.0', state: 'allowed' }, { key: 'sharp@0.33.0', state: 'needs' }, { key: '@s/x@2.0.0', state: 'approved' }])
+  // 组合设置读不懂：没在这次允许的一律 unknown，不当没定（不会说成「会装不上」，也不会说成「已允许」）
+  assert.deepEqual(classifyBuilds({ added: ['koffi@3.1.1', '@s/x@2.0.0'], decisions: null, approved: ['@s/x@2.0.0'] }), [{ key: 'koffi@3.1.1', state: 'unknown' }, { key: '@s/x@2.0.0', state: 'approved' }])
+  assert.deepEqual(classifyBuilds({ added: [], decisions: d }), [])
 })
 
 console.log(`check-unit: ${n} passed`)

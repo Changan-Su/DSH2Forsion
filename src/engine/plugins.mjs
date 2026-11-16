@@ -72,6 +72,69 @@ function judgeStart({ ready, lines, shadowed, pluginName }) {
   return { verdict: 'ok', reasons: [] }
 }
 
+/**
+ * pnpm 在 node_modules/.modules.yaml（JSON 写法）里记的「装上了、构建脚本没跑」的包（`name@version`）。体检带 --ignore-scripts，
+ * 要跑构建脚本的依赖都会记在这里。还没装过任何插件的组合没有这个文件 → 空；读不懂或读出错 → null（不知道，不当没有）。
+ */
+export async function pendingBuilds(home) {
+  let text
+  try { text = await readFile(join(profileDir(home), 'node_modules', '.modules.yaml'), 'utf8') }
+  catch (error) { return error?.code === 'ENOENT' ? [] : null }
+  try {
+    const m = JSON.parse(text)
+    return Array.isArray(m?.pendingBuilds) ? m.pendingBuilds.filter(x => typeof x === 'string') : []
+  } catch { return null }
+}
+
+/**
+ * 组合 pnpm-workspace.yaml 里 allowBuilds 已经定下的键 → true（跑）/ false（不跑）。DSH 替用户记下的「待定」占位不算定了。
+ * 只认块写法的一层映射；没有这一节 → 空；有但读不懂（流式写法、带冒号的键……）→ null（不知道）。
+ */
+export function allowBuildsDecisions(text) {
+  const out = new Map()
+  const lines = String(text ?? '').split(/\r?\n/)
+  const at = lines.findIndex(l => /^allowBuilds:/.test(l))
+  if (at < 0) return out
+  if (!/^allowBuilds:\s*(#.*)?$/.test(lines[at])) return null
+  for (const l of lines.slice(at + 1)) {
+    if (!l.trim() || /^\s*#/.test(l)) continue
+    if (!/^\s/.test(l)) break
+    const m = /^\s+(?:'([^']*)'|"([^"]*)"|([^\s:#'"][^:#]*?))\s*:\s*(true|false|'[^']*'|"[^"]*"|[^#:]*?)\s*(?:#.*)?$/.exec(l)
+    if (!m) return null
+    const key = m[1] ?? m[2] ?? m[3]
+    if (m[4] === 'true') out.set(key, true)
+    else if (m[4] === 'false') out.set(key, false)
+  }
+  return out
+}
+
+/** allowBuilds 的键（`name` / `name@1.2.3` / `name@1.2.3 || 1.2.4`）管不管得到 pnpm 记的那一个 `name@version`。 */
+export function buildKeyCovers(key, entry) {
+  const at = entry.lastIndexOf('@')
+  const name = at > 0 ? entry.slice(0, at) : entry
+  const version = at > 0 ? entry.slice(at + 1) : ''
+  if (key === entry || key === name) return true
+  if (!key.startsWith(`${name}@`)) return false
+  return key.slice(name.length + 1).split('||').map(v => v.trim()).includes(version)
+}
+
+/**
+ * 这个插件带进来的、要跑构建脚本的包各自会怎样（纯函数，单测覆盖）：
+ * approved —— 这次安装是 DSH 插件页「允许这些脚本并重试」发起的，用户刚允许了；
+ * allowed / skipped —— 组合里之前已经定了跑 / 不跑；
+ * needs —— 没人定过：DSH 不跑没允许过的构建脚本，真装的时候 pnpm 会报错，这次装不上；
+ * unknown —— 组合设置读不懂，判断不了。
+ * 体检本身一律不跑构建脚本（--ignore-scripts）。
+ */
+export function classifyBuilds({ added, decisions, approved = [] }) {
+  return added.map(key => {
+    if (approved.some(a => buildKeyCovers(a, key))) return { key, state: 'approved' }
+    if (decisions === null) return { key, state: 'unknown' }
+    const hit = [...decisions].find(([k]) => buildKeyCovers(k, key))
+    return { key, state: hit ? (hit[1] ? 'allowed' : 'skipped') : 'needs' }
+  })
+}
+
 export class PluginManager {
   /**
    * @param {ReturnType<import('./layout.mjs').layout>} paths
@@ -131,11 +194,12 @@ export class PluginManager {
    * 在临时 DSH_HOME 里拿当前组合起两次 —— 装之前一次、装上之后一次 —— 比出这个插件加了哪些工具、提示词多了多少字、
    * 有没有没启动的部分、启动时连了哪些外部主机（node --import 的钩子量出来的，不是读代码猜的）。不动真实的组合。
    */
-  review(spec) {
-    return this.exclusive(`review ${spec}`, () => this.reviewNow(spec))
+  review(spec, opts = {}) {
+    return this.exclusive(`review ${spec}`, () => this.reviewNow(spec, opts))
   }
 
-  async reviewNow(spec) {
+  /** @param {{ approvedBuilds?: string[] }} [opts] approvedBuilds：DSH 插件页「允许这些脚本并重试」时带来的那几个 */
+  async reviewNow(spec, { approvedBuilds = [] } = {}) {
     const t0 = Date.now()
     const log = this.deps.log
     let name = null
@@ -149,6 +213,7 @@ export class PluginManager {
     const sync = await dsh(this.paths, trial, ['plugin', '--profile', PROFILE, 'install', '--ignore-scripts'], { log })
     if (this.disposed) { await rm(trial, { recursive: true, force: true }); return { verdict: 'failed', spec, name, reasons: ['DSH2Forsion is being turned off'] } }
     if (sync.code !== 0) return { verdict: 'failed', spec, name, reasons: [`could not prepare the trial copy: ${tail(sync.out, 4)}`], ms: Date.now() - t0 }
+    const buildsBefore = await pendingBuilds(trial)
     const before = await this.measure(trial, 'before')
     if (this.disposed) return { verdict: 'failed', spec, name, reasons: ['DSH2Forsion is being turned off'] }
     log(`review: add ${spec}`)
@@ -166,6 +231,15 @@ export class PluginManager {
     name ??= added[0]?.name ?? null
     const version = name ? (await userPlugins(trial)).find(p => p.name === name)?.version ?? null : null
     const shadowed = await shadowedCorePackages(this.paths, trial)
+    // 它带进来的、要跑构建脚本的包（体检不跑）：没人允许过的，真装时 DSH 的 pnpm 会报错
+    const buildsAfter = await pendingBuilds(trial)
+    let builds = null
+    if (buildsBefore !== null && buildsAfter !== null) {
+      let decisions = new Map()
+      try { decisions = allowBuildsDecisions(await readFile(join(profileDir(trial), 'pnpm-workspace.yaml'), 'utf8')) }
+      catch (error) { if (error?.code !== 'ENOENT') decisions = null }
+      builds = classifyBuilds({ added: buildsAfter.filter(b => !buildsBefore.includes(b)), decisions, approved: approvedBuilds })
+    }
     const after = await this.measure(trial, 'after')
     await rm(trial, { recursive: true, force: true })
     if (this.disposed) return { verdict: 'failed', spec, name, reasons: ['DSH2Forsion is being turned off'] }
@@ -181,10 +255,11 @@ export class PluginManager {
       sections: after.sections.filter(x => x.chars !== beforeChars.get(x.name)).map(x => ({ name: x.name, chars: x.chars - (beforeChars.get(x.name) ?? 0) })),
       inactive: after.lines.filter(l => INACTIVE.test(l) || BROKEN.test(l)).filter(l => !before.lines.includes(l)).slice(0, 8),
       hosts: after.hosts.filter(h => !before.hosts.includes(h)),
+      builds,
       measured: { before: before.ready, after: after.ready },
       ms: Date.now() - t0,
     }
-    log(`review: ${report.verdict}, +${report.tools.length} tools, ${report.promptChars >= 0 ? '+' : ''}${report.promptChars} prompt chars, ${report.hosts.length} hosts`)
+    log(`review: ${report.verdict}, +${report.tools.length} tools, ${report.promptChars >= 0 ? '+' : ''}${report.promptChars} prompt chars, ${report.hosts.length} hosts, builds ${builds === null ? 'unread' : builds.map(b => `${b.key}=${b.state}`).join(',') || 'none'}`)
     return report
   }
 

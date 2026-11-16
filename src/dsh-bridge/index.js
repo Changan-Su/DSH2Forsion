@@ -75,7 +75,7 @@ export function installGate(ctx, log) {
   // 被停住的安装按 DSH 插件页给的 requestId 记着：DSH 自己的「取消」和断线重连后的 waitForInstall 认的是它
   const byRequest = new Map()
   const gate = { armed: false, reason: 'waiting for the plugin manager', pending,
-    list: () => [...pending.values()].map(({ id, spec, at }) => ({ id, spec, at })),
+    list: () => [...pending.values()].map(({ id, spec, at, approvedBuilds }) => ({ id, spec, at, approvedBuilds })),
     decide(id, allow, message) {
       const item = pending.get(id)
       if (!item) return false
@@ -103,7 +103,9 @@ export function installGate(ctx, log) {
       const held = new Promise((resolve, reject) => {
         const timer = setTimeout(() => gate.decide(id, false, 'Nobody confirmed this install in Forsion'), INSTALL_TTL_MS)
         timer.unref?.()
-        pending.set(id, { id, spec: String(spec), at: Date.now(), resolve, reject, timer })
+        // DSH 插件页「允许这些脚本并重试」带着 approvedBuilds 再装一次：体检要知道用户在 DSH 里刚允许了哪些构建脚本
+        const approvedBuilds = Array.isArray(options?.approvedBuilds) ? options.approvedBuilds.filter(x => typeof x === 'string') : []
+        pending.set(id, { id, spec: String(spec), at: Date.now(), approvedBuilds, resolve, reject, timer })
       })
       log.info('install of %s held for review in Forsion', String(spec))
       const result = held.then(() => original.call(this, spec, options))

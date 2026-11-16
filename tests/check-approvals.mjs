@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -152,14 +152,39 @@ try {
     assert.equal(st.mode, 'forsion', `self-check: ${st.reason}`)
   })
 
-  await it(`installs ${SKILLS_MANAGER} through the workbench (held → review → allowed)`, async () => {
-    // skills-manager 1.4.6 带的 koffi 有构建脚本;DSH 0.2.2 的 pnpm 11 对「没批的构建脚本」直接报错(ERR_PNPM_IGNORED_BUILDS),
-    // 组合里装不上(工作台里也一样,另报)。这里替用户明确选「不跑它的脚本」(koffi 自带预编译,不跑也能用)。
+  await it(`${SKILLS_MANAGER} from the workbench: the report names koffi's build script; unallowed the install fails and DSH records it pending; nothing allows it for the user`, async () => {
+    // skills-manager 1.4.6 带的 koffi 有构建脚本;DSH 0.2.2 的 pnpm 11 不跑没允许过的构建脚本(ERR_PNPM_IGNORED_BUILDS)。
+    // 产品缺省不替用户允许:体检报告写明,放行后这次装不上,DSH 在组合里记下「待定」,允许的入口是 DSH 插件页「允许这些脚本并重试」
+    const install = (options) => { const p = A.webRpc('pluginManager/installBundle', { spec: SKILLS_MANAGER, options: { enabled: true, requestId: randomUUID(), ...options } }); p.catch(() => {}); return p }
+    const seen = new Set((await call('GET', '/reviews')).reviews.map(x => x.id))
+    const nextReport = () => waitFor('the review report', async () => (await call('GET', '/reviews')).reviews.find(x => x.state === 'ready' && !seen.has(x.id)), 300_000).then(x => { seen.add(x.id); return x })
+    let done = install({})
+    let r = await nextReport()
+    assert.deepEqual(r.report?.builds, [{ key: 'koffi@3.1.1', state: 'needs' }], JSON.stringify(r.report))
+    await call('POST', '/reviews/decide', { id: r.id, allow: true })
+    let res = await done
+    assert.ok(res?.result?.ok === false || res?.result?.value?.application === 'failed', `unallowed build scripts did not stop the install: ${JSON.stringify(res).slice(0, 300)}`)
+    assert.match(JSON.stringify(res), /koffi@3\.1\.1/)
+    const policy = join(scratch, 'dsh/profiles/forsion/pnpm-workspace.yaml')
+    assert.match(await readFile(policy, 'utf8'), /koffi@3\.1\.1: set this to true or false/, 'DSH records the build as waiting for a decision')
+    // DSH 插件页「允许这些脚本并重试」= 同一个安装带上 approvedBuilds:再体检一次,报告写「你在 DSH 里允许了」。这里按「不装」,不跑它的脚本
+    done = install({ approvedBuilds: ['koffi@3.1.1'] })
+    r = await nextReport()
+    assert.deepEqual(r.report?.builds, [{ key: 'koffi@3.1.1', state: 'approved' }], JSON.stringify(r.report))
+    await call('POST', '/reviews/decide', { id: r.id, allow: false })
+    res = await done
+    assert.notEqual(res?.result?.ok, true, 'declined in Forsion: not installed')
+    assert.match(await readFile(policy, 'utf8'), /koffi@3\.1\.1: set this to true or false/, 'declining did not allow the build script')
+  })
+
+  await it(`installs ${SKILLS_MANAGER} through the workbench once the profile says not to run koffi's script (held → review → allowed)`, async () => {
+    // 测试替用户选「不跑它的脚本」(koffi 自带预编译,不跑也能用);只在这个临时目录里,不是产品缺省
     await writeFile(join(scratch, 'dsh/profiles/forsion/pnpm-workspace.yaml'), 'allowBuilds:\n  koffi: false\n')
     const requestId = randomUUID()
     const done = A.webRpc('pluginManager/installBundle', { spec: SKILLS_MANAGER, options: { enabled: true, requestId } })
     done.catch(() => {})
-    const r = await waitFor('the review report', async () => (await call('GET', '/reviews')).reviews.find(x => x.state === 'ready'), 300_000)
+    const r = await waitFor('the review report', async () => (await call('GET', '/reviews')).reviews.find(x => x.state === 'ready' && x.report?.builds?.[0]?.state === 'skipped'), 300_000)
+    assert.deepEqual(r.report.builds, [{ key: 'koffi@3.1.1', state: 'skipped' }])
     await call('POST', '/reviews/decide', { id: r.id, allow: true })
     const res = await done
     assert.equal(res?.result?.ok, true, JSON.stringify(res?.result?.error ?? res).slice(0, 300))

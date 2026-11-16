@@ -920,6 +920,53 @@ function judgeStart({ ready, lines, shadowed, pluginName }) {
   if (inactive.length || mine.length) return { verdict: "partial", reasons: (mine.length ? mine : inactive).slice(0, 6) };
   return { verdict: "ok", reasons: [] };
 }
+async function pendingBuilds(home) {
+  let text;
+  try {
+    text = await readFile4(join6(profileDir(home), "node_modules", ".modules.yaml"), "utf8");
+  } catch (error) {
+    return error?.code === "ENOENT" ? [] : null;
+  }
+  try {
+    const m = JSON.parse(text);
+    return Array.isArray(m?.pendingBuilds) ? m.pendingBuilds.filter((x) => typeof x === "string") : [];
+  } catch {
+    return null;
+  }
+}
+function allowBuildsDecisions(text) {
+  const out = /* @__PURE__ */ new Map();
+  const lines = String(text ?? "").split(/\r?\n/);
+  const at = lines.findIndex((l) => /^allowBuilds:/.test(l));
+  if (at < 0) return out;
+  if (!/^allowBuilds:\s*(#.*)?$/.test(lines[at])) return null;
+  for (const l of lines.slice(at + 1)) {
+    if (!l.trim() || /^\s*#/.test(l)) continue;
+    if (!/^\s/.test(l)) break;
+    const m = /^\s+(?:'([^']*)'|"([^"]*)"|([^\s:#'"][^:#]*?))\s*:\s*(true|false|'[^']*'|"[^"]*"|[^#:]*?)\s*(?:#.*)?$/.exec(l);
+    if (!m) return null;
+    const key = m[1] ?? m[2] ?? m[3];
+    if (m[4] === "true") out.set(key, true);
+    else if (m[4] === "false") out.set(key, false);
+  }
+  return out;
+}
+function buildKeyCovers(key, entry) {
+  const at = entry.lastIndexOf("@");
+  const name = at > 0 ? entry.slice(0, at) : entry;
+  const version = at > 0 ? entry.slice(at + 1) : "";
+  if (key === entry || key === name) return true;
+  if (!key.startsWith(`${name}@`)) return false;
+  return key.slice(name.length + 1).split("||").map((v) => v.trim()).includes(version);
+}
+function classifyBuilds({ added, decisions, approved = [] }) {
+  return added.map((key) => {
+    if (approved.some((a) => buildKeyCovers(a, key))) return { key, state: "approved" };
+    if (decisions === null) return { key, state: "unknown" };
+    const hit = [...decisions].find(([k]) => buildKeyCovers(k, key));
+    return { key, state: hit ? hit[1] ? "allowed" : "skipped" : "needs" };
+  });
+}
 var PluginManager = class {
   /**
    * @param {ReturnType<import('./layout.mjs').layout>} paths
@@ -990,10 +1037,11 @@ var PluginManager = class {
    * 在临时 DSH_HOME 里拿当前组合起两次 —— 装之前一次、装上之后一次 —— 比出这个插件加了哪些工具、提示词多了多少字、
    * 有没有没启动的部分、启动时连了哪些外部主机（node --import 的钩子量出来的，不是读代码猜的）。不动真实的组合。
    */
-  review(spec) {
-    return this.exclusive(`review ${spec}`, () => this.reviewNow(spec));
+  review(spec, opts = {}) {
+    return this.exclusive(`review ${spec}`, () => this.reviewNow(spec, opts));
   }
-  async reviewNow(spec) {
+  /** @param {{ approvedBuilds?: string[] }} [opts] approvedBuilds：DSH 插件页「允许这些脚本并重试」时带来的那几个 */
+  async reviewNow(spec, { approvedBuilds = [] } = {}) {
     const t0 = Date.now();
     const log = this.deps.log;
     let name = null;
@@ -1013,6 +1061,7 @@ var PluginManager = class {
       return { verdict: "failed", spec, name, reasons: ["DSH2Forsion is being turned off"] };
     }
     if (sync.code !== 0) return { verdict: "failed", spec, name, reasons: [`could not prepare the trial copy: ${tail(sync.out, 4)}`], ms: Date.now() - t0 };
+    const buildsBefore = await pendingBuilds(trial);
     const before = await this.measure(trial, "before");
     if (this.disposed) return { verdict: "failed", spec, name, reasons: ["DSH2Forsion is being turned off"] };
     log(`review: add ${spec}`);
@@ -1033,6 +1082,17 @@ var PluginManager = class {
     name ??= added[0]?.name ?? null;
     const version = name ? (await userPlugins(trial)).find((p) => p.name === name)?.version ?? null : null;
     const shadowed = await shadowedCorePackages(this.paths, trial);
+    const buildsAfter = await pendingBuilds(trial);
+    let builds = null;
+    if (buildsBefore !== null && buildsAfter !== null) {
+      let decisions = /* @__PURE__ */ new Map();
+      try {
+        decisions = allowBuildsDecisions(await readFile4(join6(profileDir(trial), "pnpm-workspace.yaml"), "utf8"));
+      } catch (error) {
+        if (error?.code !== "ENOENT") decisions = null;
+      }
+      builds = classifyBuilds({ added: buildsAfter.filter((b) => !buildsBefore.includes(b)), decisions, approved: approvedBuilds });
+    }
     const after = await this.measure(trial, "after");
     await rm2(trial, { recursive: true, force: true });
     if (this.disposed) return { verdict: "failed", spec, name, reasons: ["DSH2Forsion is being turned off"] };
@@ -1051,10 +1111,11 @@ var PluginManager = class {
       sections: after.sections.filter((x) => x.chars !== beforeChars.get(x.name)).map((x) => ({ name: x.name, chars: x.chars - (beforeChars.get(x.name) ?? 0) })),
       inactive: after.lines.filter((l) => INACTIVE.test(l) || BROKEN.test(l)).filter((l) => !before.lines.includes(l)).slice(0, 8),
       hosts: after.hosts.filter((h) => !before.hosts.includes(h)),
+      builds,
       measured: { before: before.ready, after: after.ready },
       ms: Date.now() - t0
     };
-    log(`review: ${report.verdict}, +${report.tools.length} tools, ${report.promptChars >= 0 ? "+" : ""}${report.promptChars} prompt chars, ${report.hosts.length} hosts`);
+    log(`review: ${report.verdict}, +${report.tools.length} tools, ${report.promptChars >= 0 ? "+" : ""}${report.promptChars} prompt chars, ${report.hosts.length} hosts, builds ${builds === null ? "unread" : builds.map((b) => `${b.key}=${b.state}`).join(",") || "none"}`);
     return report;
   }
   /** 在体检目录里起一次组合，量工具、提示词分节和外连主机；起不来也返回（ready=false）。 */
@@ -1599,7 +1660,7 @@ function createPlugin() {
                 const item = { id: p.id, spec: p.spec, at: p.at, state: "checking", report: null, error: null };
                 reviews.items.set(p.id, item);
                 log(`install of ${p.spec} is waiting for review`);
-                void plugins.review(p.spec).then((r) => {
+                void plugins.review(p.spec, { approvedBuilds: p.approvedBuilds }).then((r) => {
                   item.report = r;
                   item.state = "ready";
                 }, (e) => {

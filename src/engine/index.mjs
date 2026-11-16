@@ -113,7 +113,7 @@ export function createPlugin() {
                 const item = { id: p.id, spec: p.spec, at: p.at, state: 'checking', report: null, error: null }
                 reviews.items.set(p.id, item)
                 log(`install of ${p.spec} is waiting for review`)
-                void plugins.review(p.spec).then(r => { item.report = r; item.state = 'ready' }, e => { item.error = String(e.message ?? e); item.state = 'ready' })
+                void plugins.review(p.spec, { approvedBuilds: p.approvedBuilds }).then(r => { item.report = r; item.state = 'ready' }, e => { item.error = String(e.message ?? e); item.state = 'ready' })
               }
               const live = new Set((pending ?? []).map(p => p.id))
               for (const [id, item] of reviews.items) {

@@ -61,6 +61,14 @@ const STRINGS = {
     reviewAllow: '装',
     reviewDeny: '不装',
     reviewTimeout: '15 分钟内不回答就按不装处理。',
+    reviewBuildsNeeded: '要跑原生构建脚本',
+    reviewBuildsHow: 'DSH 不跑你没允许过的构建脚本：点「装」后这次会装不上，DSH 插件页会提示「允许这些脚本并重试」。在那里允许后会再体检一次（体检本身不跑这些脚本）。',
+    reviewBuildsApproved: '你在 DSH 里允许了这些构建脚本（装的时候跑，体检时没跑）',
+    reviewBuildsAllowed: '这个组合之前允许过这些构建脚本（装的时候跑，体检时没跑）',
+    reviewBuildsSkipped: '按组合设置不跑这些构建脚本（靠它们的功能可能用不了）',
+    reviewBuildsUnknown: '要跑原生构建脚本（组合设置读不懂，判断不了允没允许过）',
+    reviewBuildsUnread: '没读出它要不要跑构建脚本',
+    reviewRestart: '装好后 DSH 插件页如果写「下次启动后加载」，到 Harness 卡上点「重启 DSH」。',
     rowRuntime: '运行时',
     rowChannel: '更新通道',
     rowPlugins: 'DSH 插件',
@@ -159,6 +167,14 @@ const STRINGS = {
     reviewAllow: 'Install',
     reviewDeny: 'Don\'t install',
     reviewTimeout: 'No answer in 15 minutes counts as don\'t install.',
+    reviewBuildsNeeded: 'Needs native build scripts',
+    reviewBuildsHow: 'DSH does not run build scripts you have not allowed: this install will fail, and DSH\'s plugin page then offers "Allow these scripts and retry". Allowing them there brings this check back once more (the check itself does not run them).',
+    reviewBuildsApproved: 'You allowed these build scripts in DSH (they run during the install, not during the check)',
+    reviewBuildsAllowed: 'This profile already allows these build scripts (they run during the install, not during the check)',
+    reviewBuildsSkipped: 'The profile settings skip these build scripts (features that need them may not work)',
+    reviewBuildsUnknown: 'Needs native build scripts (the profile settings could not be read, so whether they are allowed is unknown)',
+    reviewBuildsUnread: 'Could not tell whether it needs build scripts',
+    reviewRestart: 'If DSH\'s plugin page then says it loads at the next start, click "Restart DSH" on the Harness card.',
     rowRuntime: 'Runtime',
     rowChannel: 'Update channel',
     rowPlugins: 'DSH plugins',
@@ -503,11 +519,21 @@ ctx.registerView({
         lines.push(h('li', {}, pc > 0 ? t('reviewPrompt', { n: pc }) : pc < 0 ? t('reviewPromptLess', { n: -pc }) : t('reviewPromptSame')))
         lines.push(h('li', { class: rep.inactive?.length ? 'd2f-error' : '' }, rep.inactive?.length ? [t('reviewInactive'), ': ', h('code', {}, rep.inactive.join(' · '))] : t('reviewAllActive')))
         lines.push(h('li', {}, rep.hosts?.length ? [t('reviewHosts'), ': ', h('code', {}, rep.hosts.join(', '))] : t('reviewNoHosts')))
+        // 要跑构建脚本的依赖（体检不跑）：没人允许过的，真装时 DSH 会报错；允许的入口在 DSH 自己的插件页
+        if (rep.builds === null) lines.push(h('li', {}, t('reviewBuildsUnread')))
+        for (const [state, key, cls] of [['needs', 'reviewBuildsNeeded', 'd2f-error'], ['unknown', 'reviewBuildsUnknown', 'd2f-error'], ['approved', 'reviewBuildsApproved', ''], ['allowed', 'reviewBuildsAllowed', ''], ['skipped', 'reviewBuildsSkipped', '']]) {
+          const keys = (rep.builds ?? []).filter(b => b.state === state).map(b => b.key)
+          if (keys.length) lines.push(h('li', { class: cls, 'data-builds': state }, [t(key), ': ', h('code', {}, keys.join(', '))]))
+        }
       }
+      const needsBuilds = (rep.builds ?? []).some(b => b.state === 'needs' || b.state === 'unknown')
+      const failed = !!(r.error || rep.verdict === 'failed')
       review.replaceChildren(
         h('h3', {}, t('reviewTitle', { name })),
         h('ul', {}, ...lines),
+        needsBuilds ? h('p', { class: 'd2f-muted', 'data-builds-how': '' }, t('reviewBuildsHow')) : null,
         h('p', { class: 'd2f-muted' }, t('reviewMeasured')),
+        failed ? null : h('p', { class: 'd2f-muted' }, t('reviewRestart')),
         h('p', { class: 'd2f-muted' }, t('reviewTimeout')),
         h('div', { class: 'd2f-row' },
           h('button', { class: 'd2f-btn', 'data-act': 'review-deny', onclick: decide(false) }, t('reviewDeny')),

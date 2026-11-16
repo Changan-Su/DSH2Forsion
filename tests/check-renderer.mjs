@@ -190,9 +190,38 @@ await it('installing from DSH\'s own plugin page: the workbench shows the check,
   assert.match(card.textContent, /提示词多了 812 字/)
   assert.match(card.textContent, /各部分都启动了/)
   assert.match(card.textContent, /registry\.example\.org/)
+  assert.equal(card.querySelector('[data-builds]'), null, 'no build-script line when it brings none')
+  assert.equal(card.querySelector('[data-builds-how]'), null)
+  assert.match(card.textContent, /到 Harness 卡上点「重启 DSH」/)
   card.querySelector('[data-act="review-allow"]').click()
   await until(() => calls.some(c => c.path === '/reviews/decide' && c.body?.id === 'r1' && c.body?.allow === true))
   assert.equal(card.hidden, true)
+  dispose()
+})
+
+await it('the report says which build scripts it needs and where to allow them (DSH\'s plugin page), without allowing anything itself', async () => {
+  let reviews = [{ id: 'r2', spec: '@michengai/dsh-skills-manager@1.4.6', state: 'ready', report: { verdict: 'ok', name: '@michengai/dsh-skills-manager', version: '1.4.6', tools: [], promptChars: 0, inactive: [], hosts: [], builds: [{ key: 'koffi@3.1.1', state: 'needs' }, { key: 'esbuild@0.25.0', state: 'skipped' }] } }]
+  const { reg, calls } = setup({ withSurface: true, routes: {
+    '/status': status(), 'POST /workbench': { url: 'http://127.0.0.1:4100/?token=t' }, 'POST /appearance': { ok: true },
+    '/reviews': () => ({ reviews }), 'POST /reviews/decide': { ok: true } } })
+  const el = document.createElement('div')
+  const dispose = reg.views.workbench.mount(el)
+  const card = await until(() => { const r = el.querySelector('[data-d2f="review"]'); return r && !r.hidden && r.querySelector('[data-act="review-allow"]') && r })
+  const needs = card.querySelector('[data-builds="needs"]')
+  assert.ok(needs && needs.classList.contains('d2f-error'))
+  assert.match(needs.textContent, /要跑原生构建脚本: koffi@3\.1\.1/)
+  assert.match(card.querySelector('[data-builds-how]').textContent, /允许这些脚本并重试/)
+  assert.match(card.querySelector('[data-builds="skipped"]').textContent, /按组合设置不跑这些构建脚本（靠它们的功能可能用不了）: esbuild@0\.25\.0/)
+  // 「允许这些脚本并重试」之后再体检：写的是用户刚允许的，不再说会装不上
+  reviews = [{ id: 'r3', spec: '@michengai/dsh-skills-manager@1.4.6', state: 'ready', report: { ...reviews[0].report, builds: [{ key: 'koffi@3.1.1', state: 'approved' }] } }]
+  await until(() => card.dataset.id === 'r3' && card.querySelector('[data-builds="approved"]'), 4000)
+  assert.match(card.querySelector('[data-builds="approved"]').textContent, /你在 DSH 里允许了这些构建脚本/)
+  assert.equal(card.querySelector('[data-builds-how]'), null)
+  // 读不出 pnpm 的记录：照实说不知道
+  reviews = [{ id: 'r4', spec: 'x@1.0.0', state: 'ready', report: { verdict: 'ok', name: 'x', version: '1.0.0', tools: [], promptChars: 0, inactive: [], hosts: [], builds: null } }]
+  await until(() => card.dataset.id === 'r4' && /没读出它要不要跑构建脚本/.test(card.textContent), 4000)
+  // 卡片本身只回「装 / 不装」，不替用户允许构建脚本
+  assert.ok(calls.every(c => !/approve|allowBuilds/i.test(`${c.path} ${JSON.stringify(c.body ?? '')}`)))
   dispose()
 })
 
