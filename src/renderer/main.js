@@ -116,6 +116,21 @@ const STRINGS = {
     oldHostResident: '这个版本的 Forsion 还不能让 DSH 的对话连这个常驻的 DSH：对话照旧每轮起一个 DSH，工作台里看不到它们。更新 Forsion 后连得上。',
     oldHostSurfaceTitle: '要更新 Forsion',
     oldHostSurface: '这个版本的 Forsion 没有给插件用的受控网页容器，DSH 工作台打不开。更新 Forsion 后再打开；DSH 的对话照旧能用。',
+    railTitle: 'DSH',
+    railNoSessionTitle: '还没开始',
+    railNoSession: '发一句之后，这里显示 DSH 的页面。',
+    railStoppedTitle: 'DSH 没在运行',
+    railStopped: '启动之后，这里显示这场对话在 DSH 里的页面。',
+    railStart: '启动 DSH',
+    railMismatchTitle: '这一版 DSH 对不上右栏页',
+    railMismatch: 'DSH 更新后改了右侧栏的接口，融合插件还没跟上。先在工作台里看。',
+    railNotInstalledTitle: 'DSH 还没装好',
+    railNotInstalled: '先在工作台里把 DSH 装好，这里就显示它的页面。',
+    railFailedTitle: '右栏里打不开 DSH 的页面',
+    railFailed: '{reason}',
+    railTimeout: 'DSH 的页面一直没有回应。',
+    railOpenWorkbench: '打开工作台',
+    railOldHost: '这个版本的 Forsion 还不能让右栏跟着当前对话走。更新 Forsion 后再用；工作台照旧能用。',
   },
   en: {
     workbenchTitle: 'DSH workbench',
@@ -223,6 +238,21 @@ const STRINGS = {
     oldHostResident: 'This version of Forsion cannot connect DSH chats to this DSH yet: each turn still starts its own DSH, and the workbench does not show those chats. Update Forsion to connect them.',
     oldHostSurfaceTitle: 'Update Forsion',
     oldHostSurface: 'This version of Forsion has no controlled web surface for plugins, so the DSH workbench cannot open. Update Forsion, then open it again; DSH chats still work.',
+    railTitle: 'DSH',
+    railNoSessionTitle: 'Not started yet',
+    railNoSession: 'Send a message, and DSH\'s pages show up here.',
+    railStoppedTitle: 'DSH isn\'t running',
+    railStopped: 'Start it, and this conversation\'s pages in DSH show up here.',
+    railStart: 'Start DSH',
+    railMismatchTitle: 'This DSH version doesn\'t fit the right sidebar',
+    railMismatch: 'A DSH update changed its right sidebar, and the fusion plugin hasn\'t caught up yet. Use the workbench for now.',
+    railNotInstalledTitle: 'DSH isn\'t set up yet',
+    railNotInstalled: 'Set up DSH in the workbench, and its pages show up here.',
+    railFailedTitle: 'DSH\'s page can\'t open here',
+    railFailed: '{reason}',
+    railTimeout: 'DSH\'s page never answered.',
+    railOpenWorkbench: 'Open the workbench',
+    railOldHost: 'This version of Forsion can\'t make the sidebar follow the conversation yet. Update Forsion to use it; the workbench still works.',
   },
 }
 
@@ -266,6 +296,14 @@ const CSS = `
 .d2f-review ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .d2f-review code { font: 11.5px/1.45 var(--font-mono); overflow-wrap: anywhere; }
 .d2f-review .d2f-row { justify-content: flex-end; }
+.d2f-rail-box { flex: 1; min-height: 0; display: flex; }
+.d2f-rail-box[hidden] { display: none; }
+.d2f-rail-note { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 28px; text-align: center; color: var(--text-faint); }
+.d2f-rail-note[hidden] { display: none; }
+.d2f-rail-note-title { font-family: var(--font-body); font-size: var(--ui-font-heading, 14px); color: var(--text-muted); }
+.d2f-rail-note-body { font-size: var(--ui-font-body, 13px); line-height: 1.6; max-width: 280px; color: var(--text-muted); overflow-wrap: anywhere; }
+.d2f-rail-note .d2f-btn { padding: 4px 10px; font-size: var(--ui-font-meta, 12px); background: transparent; border-color: var(--overlay-strong, var(--border)); }
+.d2f-rail-note .d2f-btn:hover { background: transparent; border-color: var(--accent-ink, var(--accent)); color: var(--accent-ink, var(--accent)); }
 `
 
 function h(tag, attrs = {}, ...children) {
@@ -652,6 +690,164 @@ async function harnessRows() {
   return [runtime, channel, pluginsRow]
 }
 
+// ── 右栏页（第 2 档）：DSH 跑的对话，右栏「详情 / 文件 / 大纲」后面多一页，里面是 DSH 右侧栏本来的样子 ──────────
+// 宿主按 registerEngineHarness 的 railView 补上 / 关掉这一页（换到别处跑的对话就关），这里只管跟着当前对话：
+// 先在常驻 DSH 里接上这一场（hold），再拿登录地址和回报口令，嵌 DSH 的网页、地址 # 带「哪一页、哪一场、口令、序号」，
+// 由桥的网页端小模块（dsh-bridge/client.js 的右栏模式）只画右侧栏那一页，并把开没开成报回来。
+const RAIL_WAIT_MS = 16_000 // 比网页那边的时限（会话上屏 8 秒 + 等页登记 5 秒）多留一点
+// 这一程里右栏开过的 DSH 会话：头一次开「文件」，之后不指定页（*），留着 DSH 为这一场记住的那页
+const railShown = new Set()
+
+ctx.registerView({
+  id: 'rail',
+  title: both('railTitle'),
+  icon: 'boxes',
+  mount(el) {
+    let alive = true
+    let gen = 0 // 每次换场 / 重来加一：晚回来的旧请求不许改界面
+    let surface = null
+    let base = null
+    let seq = 0
+    let state = 'loading'
+    let current // 正在跟的 Forsion 会话（null = 新对话还没发）
+    const root = h('div', { class: 'd2f d2f-space', 'data-d2f': 'rail' })
+    withStyle(root)
+    const box = h('div', { class: 'd2f-rail-box', hidden: true })
+    const note = h('div', { class: 'd2f-rail-note', 'data-d2f': 'rail-note' })
+    root.append(box, note)
+    el.append(root)
+
+    const drop = () => { if (surface) { surface.dispose?.(); surface = null } base = null }
+    // 说明：标题 + 一句 + 至多一个按钮。网页容器只在 DSH 那页作废时才拆（没开始的对话、DSH 停了），换回来不用重登
+    const say = (st, title, body, button) => {
+      state = st
+      note.dataset.state = st
+      note.replaceChildren(h('div', { class: 'd2f-rail-note-title' }, title), h('div', { class: 'd2f-rail-note-body' }, body), button ?? null)
+      note.hidden = false
+      box.hidden = true
+    }
+    const wbButton = () => h('button', { class: 'd2f-btn', 'data-act': 'rail-workbench', onclick: () => openWorkbench() }, t('railOpenWorkbench'))
+    const failed = (reason) => { drop(); say('failed', t('railFailedTitle'), t('railFailed', { reason }), wbButton()) }
+    const mismatch = () => { drop(); say('mismatch', t('railMismatchTitle'), t('railMismatch'), wbButton()) }
+    const stopped = () => {
+      drop()
+      const start = h('button', { class: 'd2f-btn', 'data-act': 'rail-start', onclick: async () => {
+        start.disabled = true
+        try { await call('/sidecar/start', { method: 'POST' }) } catch (error) { if (alive) failed(String(error.message ?? error)); return }
+        if (alive) void show(current)
+      } }, t('railStart'))
+      say('stopped', t('railStoppedTitle'), t('railStopped'), start)
+    }
+
+    const syncAppearance = () => { void call('/appearance', { method: 'POST', body: hostAppearance() }).catch(() => {}) }
+    const modeObserver = new MutationObserver(syncAppearance)
+    modeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] })
+    const offLocale = ctx.subscribeLocale?.(() => syncAppearance())
+
+    // 等这一次导航的回报（同一口令、同一序号）：开成了就亮出网页，别的都换成说明，不自己重试
+    const awaitReport = async (my, nonce, n) => {
+      const until = Date.now() + RAIL_WAIT_MS
+      while (alive && my === gen && Date.now() < until) {
+        await sleep(300)
+        if (!alive || my !== gen) return
+        let r
+        try { r = await call('/rail/report', { method: 'POST', body: { nonce } }) } catch { continue }
+        if (!alive || my !== gen) return
+        if (r?.stopped) { stopped(); return }
+        const rep = r?.report
+        if (!rep || rep.n !== String(n)) continue
+        if (rep.state === 'ok') { state = 'surface'; note.hidden = true; box.hidden = false; return }
+        if (rep.state === 'incompatible') { mismatch(); return }
+        if (rep.state === 'no-session') { say('no-session', t('railNoSessionTitle'), t('railNoSession')); return }
+        failed(rep.reason || rep.state)
+        return
+      }
+      if (alive && my === gen) failed(t('railTimeout'))
+    }
+
+    const show = async (sid) => {
+      const my = ++gen
+      if (!sid) { say('no-session', t('railNoSessionTitle'), t('railNoSession')); return }
+      if (!ctx.ui?.mountWebSurface) { say('old-host', t('oldHostSurfaceTitle'), t('oldHostSurface')); return }
+      let status
+      try { status = await call('/status') } catch (error) { if (alive && my === gen) failed(String(error.message ?? error)); return }
+      if (!alive || my !== gen) return
+      if (!status.runtime?.installed) { drop(); say('not-installed', t('railNotInstalledTitle'), t('railNotInstalled'), wbButton()); return }
+      if (status.fusion?.incompatible) { mismatch(); return }
+      if (status.sidecar?.state !== 'running') { stopped(); return }
+      let held
+      try { held = await call('/hold', { method: 'POST', body: { sessionId: sid } }) } catch (error) { if (alive && my === gen) failed(String(error.message ?? error)); return }
+      if (!alive || my !== gen) return
+      if (held?.ok !== true || !held.engineSessionId) {
+        // DSH 那边还没有这一场（还没发过话）：不替它建，等发了再来
+        if (held?.code === 'no_engine_session') say('no-session', t('railNoSessionTitle'), t('railNoSession'))
+        else failed(held?.detail ?? held?.code ?? 'hold failed')
+        return
+      }
+      const esid = String(held.engineSessionId)
+      let rail
+      try { rail = await call('/rail', { method: 'POST' }) } catch (error) { if (alive && my === gen) failed(String(error.message ?? error)); return }
+      if (!alive || my !== gen) return
+      if (rail?.incompatible) { mismatch(); return }
+      if (!rail?.url || !rail.nonce) { failed('no url'); return }
+      const kind = railShown.has(esid) ? '*' : 'files'
+      railShown.add(esid)
+      const n = ++seq
+      const hash = `#d2f-rail=${encodeURIComponent(kind)}&d2f-session=${encodeURIComponent(esid)}&d2f-nonce=${encodeURIComponent(rail.nonce)}&n=${n}`
+      if (surface && base === rail.base) {
+        surface.navigate?.(hash) // 同一页只换 #：不重载、不重登
+      } else {
+        drop()
+        box.replaceChildren()
+        const handle = ctx.ui.mountWebSurface(box, { url: rail.url + hash, partition: 'rail', onLoadFail: () => { if (alive && state === 'surface') void show(current) } })
+        surface = handle
+        base = rail.base
+        syncAppearance()
+      }
+      await awaitReport(my, rail.nonce, n)
+    }
+
+    // 跟着当前对话：换了一场就重来；还没开始的那场每次状态变了（发出第一句）再试
+    const follow = () => {
+      const st = ctx.tangu?.agentStatus?.()
+      const sid = st?.sessionId ?? null
+      if (sid === current && state !== 'no-session') return
+      if (sid === current && state === 'no-session' && (!sid || st?.phase === 'idle')) return
+      current = sid
+      void show(sid)
+    }
+    const offStatus = ctx.tangu?.subscribeAgentStatus?.(() => follow())
+    if (!ctx.tangu?.agentStatus) say('old-host', t('oldHostSurfaceTitle'), t('railOldHost'))
+    else { current = undefined; follow() }
+
+    // 常驻 DSH 重启（端口和令牌都换了）/ 停了 / 对不上：跟工作台同一套盯法
+    let checking = false
+    const watch = setInterval(async () => {
+      if (!alive || checking || state !== 'surface') return
+      checking = true
+      try {
+        const s = await call('/status')
+        if (!alive || state !== 'surface') return
+        const st = s.sidecar?.state
+        if (s.fusion?.incompatible) mismatch()
+        else if (st === 'stopped' || st === 'failed') stopped()
+        else if (st === 'running' && s.sidecar.base && s.sidecar.base !== base) { drop(); void show(current) }
+      } catch { /* 一时不通：下一轮再看 */ } finally { checking = false }
+    }, WATCH_MS)
+
+    return () => {
+      alive = false
+      gen++
+      clearInterval(watch)
+      offStatus?.()
+      offLocale?.()
+      modeObserver.disconnect()
+      drop()
+      root.remove()
+    }
+  },
+})
+
 // 先后右键了两场：只认最后点的那一场（先点的那场晚回来，不能把落点改回去）
 let holdGen = 0
 const holdThenOpen = async ({ sessionId }) => {
@@ -678,6 +874,8 @@ if (ctx.registerEngineHarness) {
     engineId: ENGINE_ID,
     rows: () => harnessRows(),
     sessionActions: [{ id: 'open-in-workbench', label: both('openInWorkbench'), icon: 'boxes', run: (target) => { void holdThenOpen(target) } }],
+    // 第 2 档：DSH 跑的对话右栏多一页（上面的 rail 视图）。不认这一项的旧宿主忽略它
+    railView: 'rail',
   })
 }
 

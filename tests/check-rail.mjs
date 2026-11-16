@@ -187,6 +187,16 @@ try {
     assert.ok(!(await visibleText(page, 'README.md')), 'not the other session\'s folder')
   })
 
+  await it('coming back without naming a page (*): the page DSH remembered for that session (the plugin page), not files', async () => {
+    await page.evaluate(u => { location.hash = u.slice(u.indexOf('#')) }, railUrl(rail, '*', S1))
+    const r = await reportOf(rail, seq)
+    assert.equal(r.state, 'ok', JSON.stringify(r))
+    assert.equal(r.session, S1)
+    await waitFor('the plugin page S1 was on', () => visibleText(page, 'D2F-FIXTURE-PAGE'), 15_000)
+    await waitFor('the right sidebar covering the page', async () => (await call('POST', '/rail/report', { nonce: rail.nonce })).report?.covering, 8_000)
+    await page.screenshot({ path: join(SHOTS, '02b-narrow-remembered-page.png') })
+  })
+
   await it('collapsing the right sidebar inside DSH (its own control / shortcut): it opens again', async () => {
     await page.evaluate(u => { location.hash = u.slice(u.indexOf('#')) }, railUrl(rail, 'files', S1))
     await reportOf(rail, seq)

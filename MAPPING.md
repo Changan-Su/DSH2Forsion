@@ -4,6 +4,14 @@
 
 The goal is native use of DSH agent capabilities in Tangu and WebUI contributions in Forsion. Reusing the DSH runtime is an implementation choice. Whole-page embedding and separate DSH sessions/accounts do not meet that goal.
 
+## 0.3.0：第 2 档（右栏页、截图类工具）
+
+| DSH 概念 | DSH 里的入口 | 在 Forsion 里 | 0.3.0 |
+|---|---|---|---|
+| 右侧栏的页（文件、浏览器、终端、插件登记的页） | `sidebarRight.openTab(kind)` 等公开接口；`sidebarRightTabs` 登记表 | DSH 跑的对话右栏多一页「DSH」（宿主 `registerEngineHarness` 的 `railView`）：右栏自己的网页分区里开 DSH 网页，地址 `#d2f-rail=<页>&d2f-session=<会话>&d2f-nonce=<口令>&n=<序号>`，桥的网页端小模块只画右侧栏这一页（展开、按宽度铺满），凭口令报回开没开成（`POST /forsion-bridge/rail/report`，序号小的旧回报不收）。`d2f-rail=*` = 不换页，留着 DSH 按会话存的那页（`dsh.sidebar-right.v1.<sessionId>`，DSH 自己管）。用到的接口少一个就报「对不上」 | ✅（宿主 #722） |
+| 模型收不收图 | 模型目录 `llm.resolveModelInfo(...).inputModalities`；附件存储的图片类型 | `POST /forsion-bridge/models/images`：两样都认才算收图；引擎半身的 `modelSeesImages` 交给宿主，电脑控制只在回 `true` 时跑 | ✅（宿主 #722） |
+| MCP 工具结果里的图 | `dsh-mcp-client` 收 `image` 内容（0.2.2 的 base64 校验约 490 万字符起爆栈，一张坏图整批作废） | 宿主的工具桥把截图按 MCP image 交回：线内原样、超线换同尺寸 JPEG、再超才缩小并写明倍数 | ✅（宿主 #722） |
+
 ## 0.2.0：第 1 档（融合）
 
 | DSH 概念 | DSH 里的入口 | 在 Forsion 里 | 0.2.0 |

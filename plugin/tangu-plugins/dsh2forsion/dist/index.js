@@ -62,7 +62,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 var CHANNEL_URL = "https://github.com/Changan-Su/DSH2Forsion/releases/download/dsh-channel/runtime-manifest.json";
-var PLUGIN_VERSION = "0.2.0";
+var PLUGIN_VERSION = "0.3.0";
 var VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 var sha256 = (text) => createHash("sha256").update(text).digest("hex");
 function compareVersions(a, b) {

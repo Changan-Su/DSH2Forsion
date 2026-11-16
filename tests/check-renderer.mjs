@@ -64,7 +64,7 @@ function setup({ locale = 'zh', routes = {}, withSurface = false, tangu = {}, ha
 }
 
 const status = (over = {}) => ({
-  pluginVersion: '0.2.0', dshVersion: '0.2.2-rc.3', pinnedVersion: '0.2.2-rc.3', nodeVersion: 'v24.22.0',
+  pluginVersion: '0.3.0', dshVersion: '0.2.2-rc.3', pinnedVersion: '0.2.2-rc.3', nodeVersion: 'v24.22.0',
   runtime: { installed: true, installedVersions: ['0.2.2-rc.3'], previous: null }, job: { running: false, lines: [] },
   fusion: { home: '/home/u/.dsh', profile: 'forsion', incompatible: null, resident: true, events: [] },
   channel: { published: null, latest: null }, sidecar: { state: 'running', base: 'http://127.0.0.1:4100' },
@@ -74,7 +74,8 @@ const status = (over = {}) => ({
 
 await it('registers the workbench view, the runtime page, two commands and the DSH harness; no Space', () => {
   const { reg } = setup()
-  assert.deepEqual(Object.keys(reg.views), ['workbench'])
+  assert.deepEqual(Object.keys(reg.views), ['workbench', 'rail'])
+  assert.equal(reg.harness.railView, 'rail', 'DSH chats get the rail page through the harness seam')
   assert.deepEqual(Object.keys(reg.settings), ['manage'])
   assert.deepEqual(Object.keys(reg.commands).sort(), ['dsh2forsion-manage', 'dsh2forsion-open-workbench'])
   assert.equal(reg.harness.engineId, 'dsh')
@@ -84,6 +85,77 @@ await it('registers the workbench view, the runtime page, two commands and the D
   assert.deepEqual(reg.harness.sessionActions[0].label, { zh: '在 DSH 工作台里打开', en: 'Open in the DSH workbench' })
   assert.equal(manifest.spaces, undefined)
   assert.equal(typeof reg.commands['dsh2forsion-open-workbench'].title, 'function')
+})
+
+await it('rail page: follows the active conversation — files first, the page DSH remembers after; not started / mismatch / stopped become a note with one button', async () => {
+  let active = { phase: 'idle', sessionId: 'f1' }
+  const subs = new Set()
+  const setActive = (next) => { active = next; for (const cb of subs) cb(active) }
+  let report = (n) => ({ state: 'ok', n: String(n) })
+  let nonces = 0
+  let sidecar = 'running'
+  let regRef = null
+  // 回报跟着最近一次导航（地址 # 里的 n）
+  const latestN = () => { const sf = regRef?.surfaces.at(-1); if (!sf) return 0; const u = sf.navigated.at(-1) ?? sf.opts.url; return Number(new URLSearchParams(u.slice(u.indexOf('#') + 1)).get('n')) }
+  const { reg, calls } = setup({
+    withSurface: true,
+    tangu: { agentStatus: () => active, subscribeAgentStatus: (cb) => { subs.add(cb); return () => subs.delete(cb) } },
+    routes: {
+      '/status': () => status({ sidecar: { state: sidecar, base: 'http://127.0.0.1:4100' } }),
+      'POST /hold': (body) => (body.sessionId === 'f2' ? { ok: false, code: 'no_engine_session' } : { ok: true, engineSessionId: `e-${body.sessionId}` }),
+      'POST /rail': () => ({ url: 'http://127.0.0.1:4100/?token=abc', base: 'http://127.0.0.1:4100', nonce: `N${++nonces}` }),
+      'POST /rail/report': () => ({ known: true, report: report(latestN()) }),
+      'POST /appearance': { ok: true },
+      'POST /sidecar/start': () => { sidecar = 'running'; return status() },
+    },
+  })
+  regRef = reg
+  const el = document.createElement('div')
+  const dispose = reg.views.rail.mount(el)
+  const surface = await until(() => reg.surfaces[0])
+  const hashOf = (u) => new URLSearchParams(u.slice(u.indexOf('#') + 1))
+  let h = hashOf(surface.opts.url)
+  assert.equal(surface.opts.partition, 'rail', 'its own partition, apart from the workbench')
+  assert.deepEqual([h.get('d2f-rail'), h.get('d2f-session'), h.get('d2f-nonce')], ['files', 'e-f1', 'N1'])
+  await until(() => !el.querySelector('.d2f-rail-box').hidden)
+  assert.equal(el.querySelector('.d2f-rail-note').hidden, true)
+  // 换到 DSH 那边还没开始的一场：说明，不替它建会话；网页容器留着（换回来不重登）
+  setActive({ phase: 'idle', sessionId: 'f2' })
+  await until(() => el.querySelector('.d2f-rail-note')?.dataset.state === 'no-session')
+  assert.match(el.textContent, /发一句之后，这里显示 DSH 的页面/)
+  assert.equal(reg.surfaces.length, 1)
+  // 换回第一场：同一个容器只换 #，页不指定（DSH 自己记着这一场看的哪页）
+  setActive({ phase: 'idle', sessionId: 'f1' })
+  await until(() => surface.navigated.length === 1)
+  h = hashOf(surface.navigated[0])
+  assert.deepEqual([h.get('d2f-rail'), h.get('d2f-session'), h.get('d2f-nonce')], ['*', 'e-f1', 'N2'])
+  await until(() => !el.querySelector('.d2f-rail-box').hidden)
+  // 新对话草稿：说明
+  setActive({ phase: 'idle', sessionId: null })
+  await until(() => el.querySelector('.d2f-rail-note')?.dataset.state === 'no-session')
+  // 回报「对不上」：说明 + 打开工作台，不自己重试
+  report = (n) => ({ state: 'incompatible', n: String(n), reason: 'missing: sidebarRight.openTab' })
+  setActive({ phase: 'idle', sessionId: 'f3' })
+  await until(() => el.querySelector('.d2f-rail-note')?.dataset.state === 'mismatch')
+  assert.match(el.textContent, /这一版 DSH 对不上右栏页/)
+  const holds = calls.filter((c) => c.path === '/hold').length
+  el.querySelector('[data-act="rail-workbench"]').click()
+  assert.ok(calls.some((c) => c.openView === 'workbench'))
+  for (const cb of subs) cb({ ...active, phase: 'thinking' }) // 状态变了不重试
+  await new Promise((r) => setTimeout(r, 50))
+  assert.equal(calls.filter((c) => c.path === '/hold').length, holds)
+  // DSH 停了：说明 + 启动 DSH；点了才起，起来就接着显示
+  report = (n) => ({ state: 'ok', n: String(n) })
+  sidecar = 'stopped'
+  setActive({ phase: 'idle', sessionId: 'f4' })
+  await until(() => el.querySelector('.d2f-rail-note')?.dataset.state === 'stopped')
+  assert.ok(!calls.some((c) => c.path === '/sidecar/start' || c.body?.sessionId === 'f4'), 'does not start DSH or hold the conversation by itself')
+  el.querySelector('[data-act="rail-start"]').click()
+  await until(() => calls.some((c) => c.path === '/sidecar/start'))
+  await until(() => reg.surfaces[1])
+  await until(() => !el.querySelector('.d2f-rail-box').hidden)
+  dispose()
+  assert.equal(subs.size, 0, 'unmount unsubscribes')
 })
 
 await it('every string exists in both languages, English has no Chinese characters, placeholders match', () => {

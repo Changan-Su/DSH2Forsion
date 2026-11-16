@@ -12,6 +12,8 @@ The compatibility runtime may remain an implementation detail. Users should keep
 |---|---|
 | DSH 这个 Agent 的对话 | 连这个常驻的 DSH（Genesis 的「常驻引擎」接缝）；插件不在或对不上时，退回每轮起一个 DSH |
 | DSH 自己的界面 | 「DSH 工作台」页签（主区），里面原样是 DSH 的网页界面；从 DSH Agent 的 Harness 卡和对话右键菜单打开；关页签不停 DSH，Forsion 退出时一起停 |
+| DSH 右侧栏的页（文件、插件登记的页） | 0.3.0 起：DSH 跑的对话，右栏「详情 / 文件 / 大纲」后面多一页「DSH」，跟着当前对话，里面是 DSH 右侧栏本来的样子 |
+| 截图类工具 | 0.3.0 起：浏览器、电脑控制的截图交给 DSH 当前用的模型；模型看不见图时电脑控制不跑，写明原因 |
 | 装 DSH 插件 | 在工作台里用 DSH 自己的「插件」页；装之前 Forsion 在临时目录里装前、装后各试启动一次，报告加了几个工具、提示词多了多少字、有没有没启动的部分、启动时连了哪些外部主机，你点「装」才继续 |
 | DSH 版本 | 固定在这个插件版本验过的那一版；可选「跟版」：只装 DSH2Forsion 的 CI 每天自检过、带校验值的清单里的版本，旧版留着，对不上时可以先退回上一版 |
 | 深浅色、语言 | 跟着 Forsion |
@@ -21,6 +23,10 @@ The compatibility runtime may remain an implementation detail. Users should keep
 逐项对照见 [MAPPING.md](MAPPING.md)，兼容数据见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
 ## 状态 / Status
+
+**0.3.0**（开发中）：第 2 档，右栏页与截图类工具，需要 Changan-Su/Forsion#722（未发布）；旧宿主上没有右栏页，别的同 0.2.0。
+
+**0.3.0** (in development): tier 2, the right sidebar page and screenshot tools; needs Changan-Su/Forsion#722 (unreleased). Older hosts have no right sidebar page; everything else is as in 0.2.0.
 
 **0.2.0**（开发中）：钉死 DSH `0.2.2-rc.3`、Node `v24.22.0`、pnpm `11.28.6`。需要包含 Genesis 常驻引擎、受控网页容器与 Harness 行接缝的宿主（Changan-Su/Forsion#697，未发布）；旧宿主上工作台打不开、提示更新 Forsion（不退回裸 `<webview>`：那会进内置浏览器的分区、还能跳出本机），Harness 行和右键菜单没有，DSH 的对话仍每轮起一个 DSH，运行时设置页会照实写明。
 

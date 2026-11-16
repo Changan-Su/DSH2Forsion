@@ -27,6 +27,7 @@ window.__ModuleLoader__.load({ id: 'dsh2forsion-bridge', factory() {
   const RAIL_SERVICES_MS = 6000 // 右侧栏的两个服务这么久还没出现 = 这一版 DSH 对不上
   const RAIL_TICK_MS = 700
   const PAGE_WAIT_MS = 5000 // 要的那一页这么久还没登记上 = 这一版 DSH 里没有它
+  const ANY_PAGE = '*' // d2f-rail=* ：不换页，留着 DSH 为这一场记住的那页
   const current = () => { try { return JSON.parse(globalThis.localStorage?.getItem(CURRENT) || 'null')?.sessionId ?? null } catch { return null } }
   const hash = () => String(globalThis.location?.hash || '')
   const params = () => { try { return new URLSearchParams(hash().replace(/^#/, '')) } catch { return new URLSearchParams() } }
@@ -166,7 +167,7 @@ window.__ModuleLoader__.load({ id: 'dsh2forsion-bridge', factory() {
           }
           const keep = () => {
             if (!want?.active) return // 还没打开过（等会话上屏）或这一页没有：不动 DSH 的界面
-            if (!tabs.get(want.kind)) { say('missing', { pages: pages(), reason: `no page of kind "${want.kind}" in this DSH` }); return }
+            if (want.kind !== ANY_PAGE && !tabs.get(want.kind)) { say('missing', { pages: pages(), reason: `no page of kind "${want.kind}" in this DSH` }); return }
             if (onScreen() !== want.session) { if (ctx.sessions.list.getSnapshot().byId[want.session] !== undefined) openSession(want.session); return }
             try {
               if (!right.isExpanded()) right.toggleExpanded()
@@ -200,13 +201,14 @@ window.__ModuleLoader__.load({ id: 'dsh2forsion-bridge', factory() {
                 openSession(want.session)
               }
               // 各页是各自的插件登记的，整页载入时可能晚于这里（文件页就晚于测试插件）：等一会儿再说「没有这一页」
-              if (!tabs.get(want.kind)) {
+              if (want.kind !== ANY_PAGE && !tabs.get(want.kind)) {
                 if (Date.now() - started > PAGE_WAIT_MS) { stopWaiting(); say('missing', { pages: pages(), reason: `no page of kind "${want.kind}" in this DSH` }) }
                 return
               }
               if (onScreen() === want.session) {
                 // 会话刚上屏时右侧栏这一场的状态可能还没建好，DSH 会抛「no session surface is mounted」：下一拍再试，到时限才算失败
-                try { right.openTab(want.kind) } catch (error) {
+                // 「*」= 不指定哪一页：这一场 DSH 自己记着上次看的那页（按会话存），只把右侧栏展开、铺满
+                try { if (want.kind !== ANY_PAGE) right.openTab(want.kind) } catch (error) {
                   lastError = String(error?.message ?? error).slice(0, 300)
                   if (Date.now() > deadline) fail()
                   return
