@@ -200,6 +200,14 @@ export function createPlugin() {
           sessionEvents.push({ ...event, seq: ++eventSeq, at: Date.now() })
           if (sessionEvents.length > 50) sessionEvents.splice(0, sessionEvents.length - 50)
         },
+        // 第 2 档：交过去的 Computer Use 先问「这场会话的模型收不收图」，由 DSH 自己按它的模型目录答；答不了 = 不知道（宿主按不能处理）
+        modelSeesImages: async (model) => {
+          if (typeof model !== 'string' || !model || sidecar.state !== 'running') return undefined
+          try {
+            const { image } = await sidecar.bridge('/models/images', { method: 'POST', body: JSON.stringify({ modelId: model }) })
+            return typeof image === 'boolean' ? image : undefined
+          } catch (error) { log(`modelSeesImages: ${error.message}`); return undefined }
+        },
       })
 
       // 技能照旧经后台 DSH 给 Tangu 的 Agent（改成直接读文件不在第 1 档）

@@ -6,7 +6,7 @@ import { isAbsolute } from 'node:path'
 import { managedSkills } from './skills.js'
 import { mcpSnapshot } from './mcp.js'
 import { SessionScopePool } from './session-scope.js'
-import { listModels, resolveModel, readModelBody, streamModelResponse } from './models.js'
+import { listModels, modelSeesImages, resolveModel, readModelBody, streamModelResponse } from './models.js'
 import { APPROVAL_EVENT, createApprovalRouter } from './approvals.js'
 import { createRailReports } from './rail.js'
 
@@ -203,6 +203,7 @@ async function handle(ctx, state, req, res) {
     const signal = controller.signal
     if (req.method === 'GET' && path === `${PREFIX}/models`) return send(res, 200, await listModels(ctx, { signal }))
     if (req.method === 'POST' && path === `${PREFIX}/models/resolve`) return send(res, 200, await resolveModel(ctx, (await readModelBody(req)).modelId, { signal }))
+    if (req.method === 'POST' && path === `${PREFIX}/models/images`) return send(res, 200, await modelSeesImages(ctx, (await readModelBody(req)).modelId, { signal }))
     if (req.method === 'POST' && path === `${PREFIX}/models/stream`) {
       const input = await readModelBody(req)
       if (input.sessionKey && input.cwd) return state.scopes.withInitiator(input, signal,

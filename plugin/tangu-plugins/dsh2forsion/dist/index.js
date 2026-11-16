@@ -1778,6 +1778,17 @@ function createPlugin() {
         onSession: (event) => {
           sessionEvents.push({ ...event, seq: ++eventSeq, at: Date.now() });
           if (sessionEvents.length > 50) sessionEvents.splice(0, sessionEvents.length - 50);
+        },
+        // 第 2 档：交过去的 Computer Use 先问「这场会话的模型收不收图」，由 DSH 自己按它的模型目录答；答不了 = 不知道（宿主按不能处理）
+        modelSeesImages: async (model) => {
+          if (typeof model !== "string" || !model || sidecar.state !== "running") return void 0;
+          try {
+            const { image } = await sidecar.bridge("/models/images", { method: "POST", body: JSON.stringify({ modelId: model }) });
+            return typeof image === "boolean" ? image : void 0;
+          } catch (error) {
+            log(`modelSeesImages: ${error.message}`);
+            return void 0;
+          }
         }
       });
       if (ctx.registerSkillProvider) ctx.registerSkillProvider({
