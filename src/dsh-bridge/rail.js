@@ -38,12 +38,18 @@ export function createRailReports({ now = () => Date.now(), ttlMs = NONCE_TTL_MS
       prune()
       return nonce
     },
-    /** 网页凭口令写回报。口令不认识 / 过期 / 内容不像回报 → false。 */
+    /**
+     * 网页凭口令写回报。口令不认识 / 过期 / 内容不像回报 → false。
+     * 一页右栏跟着 Forsion 换会话（地址 # 里的 n 递增）会一直报；序号比已存的小的是旧导航迟到的，不许盖掉新的。
+     */
     accept(nonce, body) {
       prune()
       const entry = typeof nonce === 'string' ? nonces.get(nonce) : undefined
       const report = entry ? cleanRailReport(body) : null
       if (!entry || !report) return false
+      const seq = /^\d{1,15}$/.test(report.n) ? Number(report.n) : -1
+      if (seq < 0) return false
+      if (entry.report && seq < Number(entry.report.n)) return false
       entry.report = report
       entry.at = now()
       return true

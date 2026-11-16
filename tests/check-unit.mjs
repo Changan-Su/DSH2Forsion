@@ -10,6 +10,7 @@ import { allowBuildsDecisions, buildDepPath, buildKeyCovers, classifyBuilds, jud
 import { installRuntime, runtimeInstalled, sources } from '../src/engine/runtime.mjs'
 import { Sidecar } from '../src/engine/sidecar.mjs'
 import { promptText, renderResult, tanguToolName, thirdPartySections } from '../src/engine/tools.mjs'
+import { createRailReports } from '../src/dsh-bridge/rail.js'
 
 let n = 0
 const it = async (name, fn) => { await fn(); n++; console.log(`ok ${n} ${name}`) }
@@ -208,6 +209,23 @@ await it('build scripts a plugin brings: allowBuilds decisions, key matching, cl
   assert.deepEqual(classifyBuilds({ added: swc, decisions: allowBuildsDecisions('allowBuilds:\n  "@swc/core": true\n') }), [{ key: '@swc/core@1.15.2', state: 'allowed' }])
   assert.deepEqual(classifyBuilds({ added: swc, decisions: new Map(), approved: ['@swc/core@1.15.2'] }), [{ key: '@swc/core@1.15.2', state: 'approved' }])
   assert.deepEqual(classifyBuilds({ added: swc, decisions: new Map() }), [{ key: '@swc/core@1.15.2', state: 'needs' }])
+})
+
+await it('rail reports: nonce-guarded, a late report from an older navigation never overwrites a newer one', () => {
+  let t = 0
+  const r = createRailReports({ now: () => t, ttlMs: 1000 })
+  const nonce = r.issue()
+  const body = (n, state) => ({ state, kind: 'files', session: `s${n}`, n: String(n) })
+  assert.equal(r.accept('nope', body(1, 'ok')), false)
+  assert.equal(r.accept(nonce, body(2, 'ok')), true)
+  assert.equal(r.accept(nonce, body(1, 'failed')), false, 'older navigation')
+  assert.equal(r.get(nonce).report.session, 's2')
+  assert.equal(r.accept(nonce, { ...body(2, 'ok'), covering: true }), true, 'same navigation may update')
+  assert.equal(r.accept(nonce, { state: 'ok', kind: 'files', session: 's3' }), false, 'no sequence number')
+  assert.equal(r.accept(nonce, body(3, 'missing')), true)
+  t = 2000
+  assert.equal(r.accept(nonce, body(4, 'ok')), false, 'expired')
+  assert.equal(r.get(nonce).known, false)
 })
 
 console.log(`check-unit: ${n} passed`)

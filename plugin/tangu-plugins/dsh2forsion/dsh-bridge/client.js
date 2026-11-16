@@ -146,6 +146,10 @@ window.__ModuleLoader__.load({ id: 'dsh2forsion-bridge', factory() {
           let want = null
           let reported = ''
           let tick = null
+          let waiting = null // 这一次导航等会话上屏、等页登记的轮询（换导航 / 卸载时撤掉）
+          let later = null
+          const stopWaiting = () => { if (waiting) { clearInterval(waiting); waiting = null } }
+          const stopAll = () => { stopWaiting(); clearTimeout(later); later = null }
           const onScreen = () => { try { return right.mounted.getSnapshot() } catch { return undefined } }
           // 右侧栏此刻是不是盖住了整页：拿页面左边那块的元素问 DSH 自己「这是不是右侧栏里的一页」
           const covering = () => {
@@ -176,17 +180,20 @@ window.__ModuleLoader__.load({ id: 'dsh2forsion-bridge', factory() {
           const begin = () => {
             const next = railWanted()
             if (!next || next.at === want?.at) return
+            stopAll()
             want = next
             reported = ''
             if (missing.length) { say('incompatible', { reason: `missing: ${missing.join(', ')}` }); return }
             if (!want.session) { say('no-session', { pages: pages() }); return }
             console.info('[dsh2forsion] rail: showing', want.kind, 'for', want.session)
             const started = Date.now()
+            const deadline = started + 8000 + PAGE_WAIT_MS
             const opened = want.at
             let asked = 0
             let lastError = ''
-            const wait = setInterval(() => {
-              if (want?.at !== opened) { clearInterval(wait); return }
+            const fail = () => { stopWaiting(); say('failed', { reason: lastError || 'the DSH session did not come on screen', pages: pages() }) }
+            waiting = setInterval(() => {
+              if (want?.at !== opened) { stopWaiting(); return }
               // 会话列表还没载到这一场时 DSH 不认（sessions.retain: unknown session）：列出来了再选；没上屏就每秒再选一次
               if (onScreen() !== want.session && ctx.sessions.list.getSnapshot().byId[want.session] !== undefined && Date.now() - asked > 1000) {
                 asked = Date.now()
@@ -194,21 +201,22 @@ window.__ModuleLoader__.load({ id: 'dsh2forsion-bridge', factory() {
               }
               // 各页是各自的插件登记的，整页载入时可能晚于这里（文件页就晚于测试插件）：等一会儿再说「没有这一页」
               if (!tabs.get(want.kind)) {
-                if (Date.now() - started > PAGE_WAIT_MS) { clearInterval(wait); say('missing', { pages: pages(), reason: `no page of kind "${want.kind}" in this DSH` }) }
+                if (Date.now() - started > PAGE_WAIT_MS) { stopWaiting(); say('missing', { pages: pages(), reason: `no page of kind "${want.kind}" in this DSH` }) }
                 return
               }
               if (onScreen() === want.session) {
                 // 会话刚上屏时右侧栏这一场的状态可能还没建好，DSH 会抛「no session surface is mounted」：下一拍再试，到时限才算失败
                 try { right.openTab(want.kind) } catch (error) {
                   lastError = String(error?.message ?? error).slice(0, 300)
+                  if (Date.now() > deadline) fail()
                   return
                 }
-                clearInterval(wait)
+                stopWaiting()
                 want.active = true
-                setTimeout(keep, 120)
+                later = setTimeout(keep, 120)
                 return
               }
-              if (Date.now() - started > 8000 + PAGE_WAIT_MS) { clearInterval(wait); say('failed', { reason: lastError || 'the DSH session did not come on screen', pages: pages() }) }
+              if (Date.now() > deadline) fail()
             }, 100)
           }
           if (!missing.length) {
@@ -218,11 +226,11 @@ window.__ModuleLoader__.load({ id: 'dsh2forsion-bridge', factory() {
             globalThis.addEventListener('hashchange', begin)
             globalThis.addEventListener('resize', keep)
             begin()
-            return () => { clearInterval(tick); off(); globalThis.removeEventListener('hashchange', begin); globalThis.removeEventListener('resize', keep) }
+            return () => { stopAll(); clearInterval(tick); off(); globalThis.removeEventListener('hashchange', begin); globalThis.removeEventListener('resize', keep) }
           }
           globalThis.addEventListener('hashchange', begin)
           begin()
-          return () => globalThis.removeEventListener('hashchange', begin)
+          return () => { stopAll(); globalThis.removeEventListener('hashchange', begin) }
         }, 'dsh2forsion: show one right sidebar page for Forsion')
       })
     },

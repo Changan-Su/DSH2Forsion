@@ -386,7 +386,7 @@ await it('a newer right-click whose hold fails drops the earlier, unused landing
 })
 
 // 照 DSH 的样子加载桥的网页端小模块：openSession 把「当前会话」写进 localStorage（DSH 的 uiWorkspace 就存在那里）
-async function loadClient({ url = 'http://127.0.0.1:4100/', saved = null } = {}) {
+async function loadClient({ url = 'http://127.0.0.1:4100/', saved = null, rail = null } = {}) {
   const clientSrc = await readFile(join(repo, 'src/dsh-bridge/client.js'), 'utf8')
   const window = new Window({ url })
   let mod = null
@@ -403,11 +403,51 @@ async function loadClient({ url = 'http://127.0.0.1:4100/', saved = null } = {})
     uiWorkspace: { openSession: (id) => { state.opened.push(id); setCurrent(id) } },
     sessions: { list: { getSnapshot: () => ({ byId: state.byId }), subscribe: (f) => { subs.add(f); return () => subs.delete(f) } } },
     effect: (f) => { cleanups.push(f()) },
+    // 右栏页那半要的两个服务：给了 rail 就当这一版 DSH 有（scope 同 DSH 的 ctx.inject），没给就当一直没出现
+    inject: (_deps, fn) => { if (rail) fn({ ...rail, effect: (f) => { cleanups.push(f()) } }) },
   })
   const notify = () => { for (const f of subs) f() }
   const close = async () => { for (const c of cleanups) c?.(); await window.happyDOM.close() }
   return { window, state, setCurrent, notify, close }
 }
+
+await it('rail mode: a page that keeps refusing to open is reported as failed at the deadline; unloading stops all retries', async () => {
+  let opens = 0
+  const rail = {
+    sidebarRight: {
+      openTab: () => { opens++; throw new Error('no session surface is mounted') },
+      isExpanded: () => true, toggleExpanded() {}, toggleFullscreen() {}, commandTarget: () => null, focusedTarget: () => null,
+      mounted: { getSnapshot: () => 's1' },
+    },
+    sidebarRightTabs: { get: (k) => (k === 'files' ? { kind: 'files', title: () => 'Files' } : undefined), entries: () => [{ kind: 'files', title: () => 'Files' }], subscribe: () => () => {} },
+  }
+  // 小模块跑在 happy-dom 自己的上下文里：fetch / Date 是窗口的那份
+  const sent = []
+  let c = await loadClient({ url: 'http://127.0.0.1:4100/#d2f-rail=files&d2f-session=s1&d2f-nonce=N1&n=1', rail })
+  c.window.fetch = async (_u, init) => { sent.push(JSON.parse(init.body)); return new c.window.Response('{}') }
+  c.state.byId = { s1: {} }
+  await until(() => opens >= 2)
+  assert.equal(sent.length, 0, 'still retrying before the deadline')
+  const realNow = c.window.Date.now
+  c.window.Date.now = () => realNow.call(c.window.Date) + 60_000 // 把这个窗口的钟拨过时限
+  await until(() => sent.some(r => r.state === 'failed'))
+  const failed = sent.find(r => r.state === 'failed')
+  assert.match(failed.reason, /no session surface/)
+  assert.equal(failed.n, '1')
+  const after = opens
+  await new Promise(r => setTimeout(r, 300))
+  assert.equal(opens, after, 'no more retries after the failure report')
+  await c.close()
+  // 还在重试时卸载：轮询一并撤掉
+  opens = 0
+  c = await loadClient({ url: 'http://127.0.0.1:4100/#d2f-rail=files&d2f-session=s1&d2f-nonce=N2&n=1', rail })
+  c.window.fetch = async () => new c.window.Response('{}')
+  await until(() => opens >= 2)
+  await c.close()
+  const left = opens
+  await new Promise(r => setTimeout(r, 300))
+  assert.equal(opens, left, 'unloading stops the retries')
+})
 
 await it('bridge web module: lands once the conversation shows up; busy session lists do not push the fallback back', async () => {
   const { window, state, notify, close } = await loadClient()

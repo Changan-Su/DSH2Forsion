@@ -53,7 +53,7 @@ function png() {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
 }
 const PNG_B64 = png().toString('base64')
-// 整屏大小（1440×900）的噪点图：压不小，按最坏的截图体积算（真截图 Forsion 会先缩到 1568 边长内的 JPEG）
+// 整屏大小（1440×900）的噪点图：压不小，按最坏的截图体积算（PNG 的 base64 超过 300 万字符，Forsion 换成同尺寸 JPEG 再交，坐标不变）
 function bigPng(w = 1440, h = 900) {
   const raw = Buffer.alloc((w * 3 + 1) * h)
   let seed = 7
