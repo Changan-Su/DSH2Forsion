@@ -217,6 +217,12 @@ await it('the report says which build scripts it needs and where to allow them (
   await until(() => card.dataset.id === 'r3' && card.querySelector('[data-builds="approved"]'), 4000)
   assert.match(card.querySelector('[data-builds="approved"]').textContent, /你在 DSH 里允许了这些构建脚本/)
   assert.equal(card.querySelector('[data-builds-how]'), null)
+  // 组合设置读不懂：说判断不了，「会装不上」只说成「没允许过的话」
+  reviews = [{ id: 'r3b', spec: '@michengai/dsh-skills-manager@1.4.6', state: 'ready', report: { ...reviews[0].report, builds: [{ key: 'koffi@3.1.1', state: 'unknown' }] } }]
+  await until(() => card.dataset.id === 'r3b' && card.querySelector('[data-builds="unknown"]'), 4000)
+  assert.match(card.querySelector('[data-builds="unknown"]').textContent, /判断不了允没允许过/)
+  assert.equal(card.querySelector('[data-builds-how=""]'), null, 'no definite "this install will fail" when it cannot tell')
+  assert.match(card.querySelector('[data-builds-how="maybe"]').textContent, /没允许过的话/)
   // 读不出 pnpm 的记录：照实说不知道
   reviews = [{ id: 'r4', spec: 'x@1.0.0', state: 'ready', report: { verdict: 'ok', name: 'x', version: '1.0.0', tools: [], promptChars: 0, inactive: [], hosts: [], builds: null } }]
   await until(() => card.dataset.id === 'r4' && /没读出它要不要跑构建脚本/.test(card.textContent), 4000)

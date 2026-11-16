@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 import { DSH_VERSION, NODE_VERSION, PNPM_VERSION } from '../src/engine/constants.mjs'
 import { childEnv } from '../src/engine/env.mjs'
 import { layout, nodePlatform } from '../src/engine/layout.mjs'
-import { allowBuildsDecisions, buildKeyCovers, classifyBuilds, judgeTrial, specName } from '../src/engine/plugins.mjs'
+import { allowBuildsDecisions, buildDepPath, buildKeyCovers, classifyBuilds, judgeTrial, specName } from '../src/engine/plugins.mjs'
 import { installRuntime, runtimeInstalled, sources } from '../src/engine/runtime.mjs'
 import { Sidecar } from '../src/engine/sidecar.mjs'
 import { promptText, renderResult, tanguToolName, thirdPartySections } from '../src/engine/tools.mjs'
@@ -193,9 +193,21 @@ await it('build scripts a plugin brings: allowBuilds decisions, key matching, cl
   const added = ['koffi@3.1.1', 'esbuild@0.25.0', 'sharp@0.33.0', '@s/x@2.0.0']
   assert.deepEqual(classifyBuilds({ added, decisions: d, approved: ['@s/x@2.0.0'] }), [
     { key: 'koffi@3.1.1', state: 'skipped' }, { key: 'esbuild@0.25.0', state: 'allowed' }, { key: 'sharp@0.33.0', state: 'needs' }, { key: '@s/x@2.0.0', state: 'approved' }])
-  // 组合设置读不懂：没在这次允许的一律 unknown，不当没定（不会说成「会装不上」，也不会说成「已允许」）
-  assert.deepEqual(classifyBuilds({ added: ['koffi@3.1.1', '@s/x@2.0.0'], decisions: null, approved: ['@s/x@2.0.0'] }), [{ key: 'koffi@3.1.1', state: 'unknown' }, { key: '@s/x@2.0.0', state: 'approved' }])
+  // 组合设置读不懂：一律 unknown，不当没定；读不懂时也不知道有没有写「不跑」的，这次允许的也算 unknown
+  assert.deepEqual(classifyBuilds({ added: ['koffi@3.1.1', '@s/x@2.0.0'], decisions: null, approved: ['@s/x@2.0.0'] }), [{ key: 'koffi@3.1.1', state: 'unknown' }, { key: '@s/x@2.0.0', state: 'unknown' }])
   assert.deepEqual(classifyBuilds({ added: [], decisions: d }), [])
+  // 多条规则管到同一个包：照 pnpm，明写不跑的优先（这次在 DSH 里允许了也一样）
+  const both = allowBuildsDecisions('allowBuilds:\n  koffi: true\n  koffi@3.1.1: false\n')
+  assert.deepEqual(classifyBuilds({ added: ['koffi@3.1.1'], decisions: both }), [{ key: 'koffi@3.1.1', state: 'skipped' }])
+  assert.deepEqual(classifyBuilds({ added: ['koffi@3.1.1'], decisions: allowBuildsDecisions('allowBuilds:\n  koffi: false\n'), approved: ['koffi@3.1.1'] }), [{ key: 'koffi@3.1.1', state: 'skipped' }])
+  // pnpm 的依赖路径带同伴依赖后缀：去掉后缀再对规则；同一个包不同后缀只报一次
+  assert.equal(buildDepPath('@swc/core@1.15.2(@swc/helpers@0.5.15)'), '@swc/core@1.15.2')
+  assert.ok(buildKeyCovers('@swc/core', '@swc/core@1.15.2(@swc/helpers@0.5.15)'))
+  assert.ok(buildKeyCovers('@swc/core@1.15.2', '@swc/core@1.15.2(@swc/helpers@0.5.15)'))
+  const swc = ['@swc/core@1.15.2(@swc/helpers@0.5.15)', '@swc/core@1.15.2(@swc/helpers@0.5.17)']
+  assert.deepEqual(classifyBuilds({ added: swc, decisions: allowBuildsDecisions('allowBuilds:\n  "@swc/core": true\n') }), [{ key: '@swc/core@1.15.2', state: 'allowed' }])
+  assert.deepEqual(classifyBuilds({ added: swc, decisions: new Map(), approved: ['@swc/core@1.15.2'] }), [{ key: '@swc/core@1.15.2', state: 'approved' }])
+  assert.deepEqual(classifyBuilds({ added: swc, decisions: new Map() }), [{ key: '@swc/core@1.15.2', state: 'needs' }])
 })
 
 console.log(`check-unit: ${n} passed`)

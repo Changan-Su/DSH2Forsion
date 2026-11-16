@@ -951,20 +951,26 @@ function allowBuildsDecisions(text) {
   }
   return out;
 }
+function buildDepPath(entry) {
+  const i = entry.indexOf("(");
+  return i > 0 ? entry.slice(0, i) : entry;
+}
 function buildKeyCovers(key, entry) {
-  const at = entry.lastIndexOf("@");
-  const name = at > 0 ? entry.slice(0, at) : entry;
-  const version = at > 0 ? entry.slice(at + 1) : "";
-  if (key === entry || key === name) return true;
+  const dep = buildDepPath(entry);
+  const at = dep.lastIndexOf("@");
+  const name = at > 0 ? dep.slice(0, at) : dep;
+  const version = at > 0 ? dep.slice(at + 1) : "";
+  if (key === dep || key === name) return true;
   if (!key.startsWith(`${name}@`)) return false;
   return key.slice(name.length + 1).split("||").map((v) => v.trim()).includes(version);
 }
 function classifyBuilds({ added, decisions, approved = [] }) {
-  return added.map((key) => {
-    if (approved.some((a) => buildKeyCovers(a, key))) return { key, state: "approved" };
+  return [...new Set(added.map(buildDepPath))].map((key) => {
     if (decisions === null) return { key, state: "unknown" };
-    const hit = [...decisions].find(([k]) => buildKeyCovers(k, key));
-    return { key, state: hit ? hit[1] ? "allowed" : "skipped" : "needs" };
+    const hits = [...decisions].filter(([k]) => buildKeyCovers(k, key)).map(([, v]) => v);
+    if (hits.includes(false)) return { key, state: "skipped" };
+    if (approved.some((a) => buildKeyCovers(a, key))) return { key, state: "approved" };
+    return { key, state: hits.includes(true) ? "allowed" : "needs" };
   });
 }
 var PluginManager = class {
@@ -1091,7 +1097,8 @@ var PluginManager = class {
       } catch (error) {
         if (error?.code !== "ENOENT") decisions = null;
       }
-      builds = classifyBuilds({ added: buildsAfter.filter((b) => !buildsBefore.includes(b)), decisions, approved: approvedBuilds });
+      const had = new Set(buildsBefore.map(buildDepPath));
+      builds = classifyBuilds({ added: buildsAfter.filter((b) => !had.has(buildDepPath(b))), decisions, approved: approvedBuilds });
     }
     const after = await this.measure(trial, "after");
     await rm2(trial, { recursive: true, force: true });

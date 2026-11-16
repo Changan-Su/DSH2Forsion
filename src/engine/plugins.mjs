@@ -108,30 +108,39 @@ export function allowBuildsDecisions(text) {
   return out
 }
 
-/** allowBuilds 的键（`name` / `name@1.2.3` / `name@1.2.3 || 1.2.4`）管不管得到 pnpm 记的那一个 `name@version`。 */
+/** pnpm 记的依赖路径可能带同伴依赖后缀（`@swc/core@1.15.2(@swc/helpers@0.5.15)`）：去掉后缀，只留 `name@version`。 */
+export function buildDepPath(entry) {
+  const i = entry.indexOf('(')
+  return i > 0 ? entry.slice(0, i) : entry
+}
+
+/** allowBuilds 的键（`name` / `name@1.2.3` / `name@1.2.3 || 1.2.4`）管不管得到 pnpm 记的那一个依赖。 */
 export function buildKeyCovers(key, entry) {
-  const at = entry.lastIndexOf('@')
-  const name = at > 0 ? entry.slice(0, at) : entry
-  const version = at > 0 ? entry.slice(at + 1) : ''
-  if (key === entry || key === name) return true
+  const dep = buildDepPath(entry)
+  const at = dep.lastIndexOf('@')
+  const name = at > 0 ? dep.slice(0, at) : dep
+  const version = at > 0 ? dep.slice(at + 1) : ''
+  if (key === dep || key === name) return true
   if (!key.startsWith(`${name}@`)) return false
   return key.slice(name.length + 1).split('||').map(v => v.trim()).includes(version)
 }
 
 /**
- * 这个插件带进来的、要跑构建脚本的包各自会怎样（纯函数，单测覆盖）：
+ * 这个插件带进来的、要跑构建脚本的包各自会怎样（纯函数，单测覆盖）。多条规则管到同一个包时照 pnpm：明写不跑的优先。
+ * skipped —— 组合里有一条写了不跑（这次在 DSH 里允许了也一样）；
  * approved —— 这次安装是 DSH 插件页「允许这些脚本并重试」发起的，用户刚允许了；
- * allowed / skipped —— 组合里之前已经定了跑 / 不跑；
+ * allowed —— 组合里之前已经允许过；
  * needs —— 没人定过：DSH 不跑没允许过的构建脚本，真装的时候 pnpm 会报错，这次装不上；
- * unknown —— 组合设置读不懂，判断不了。
+ * unknown —— 组合设置读不懂，判断不了（读不懂时也不知道有没有写不跑的，所以这次允许的也算 unknown）。
  * 体检本身一律不跑构建脚本（--ignore-scripts）。
  */
 export function classifyBuilds({ added, decisions, approved = [] }) {
-  return added.map(key => {
-    if (approved.some(a => buildKeyCovers(a, key))) return { key, state: 'approved' }
+  return [...new Set(added.map(buildDepPath))].map(key => {
     if (decisions === null) return { key, state: 'unknown' }
-    const hit = [...decisions].find(([k]) => buildKeyCovers(k, key))
-    return { key, state: hit ? (hit[1] ? 'allowed' : 'skipped') : 'needs' }
+    const hits = [...decisions].filter(([k]) => buildKeyCovers(k, key)).map(([, v]) => v)
+    if (hits.includes(false)) return { key, state: 'skipped' }
+    if (approved.some(a => buildKeyCovers(a, key))) return { key, state: 'approved' }
+    return { key, state: hits.includes(true) ? 'allowed' : 'needs' }
   })
 }
 
@@ -238,7 +247,8 @@ export class PluginManager {
       let decisions = new Map()
       try { decisions = allowBuildsDecisions(await readFile(join(profileDir(trial), 'pnpm-workspace.yaml'), 'utf8')) }
       catch (error) { if (error?.code !== 'ENOENT') decisions = null }
-      builds = classifyBuilds({ added: buildsAfter.filter(b => !buildsBefore.includes(b)), decisions, approved: approvedBuilds })
+      const had = new Set(buildsBefore.map(buildDepPath))
+      builds = classifyBuilds({ added: buildsAfter.filter(b => !had.has(buildDepPath(b))), decisions, approved: approvedBuilds })
     }
     const after = await this.measure(trial, 'after')
     await rm(trial, { recursive: true, force: true })
