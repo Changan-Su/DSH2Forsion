@@ -90,8 +90,11 @@ export function createPlugin() {
         return starting
       }
       const stop = async (graceMs) => { tools.stopPolling(); reviews.stopPolling(); await sidecar.stop(graceMs); await tools.refresh() }
+      // 重启要等在途的那次启动先收尾:它还在起的时候停掉,随后的 start() 会拿到那次没起成的启动(报「exited with 0」,DSH 停着)
+      const settled = () => starting?.then(() => {}, () => {})
       const restart = async () => {
         if (disposed) return
+        await settled()
         await stop()
         if (!disposed) await start().catch(error => log(`restart failed: ${error.message}`))
       }
@@ -297,7 +300,7 @@ export function createPlugin() {
         router.post('/sidecar/start', (_req, res) => send(res, async () => { await start(); return status() }))
         // 停到下次用：下一次和 DSH 对话或打开工作台时会再起
         router.post('/sidecar/stop', (_req, res) => send(res, async () => { await stop(); return status() }))
-        router.post('/sidecar/restart', (_req, res) => send(res, async () => { await stop(); await start(); return status() }))
+        router.post('/sidecar/restart', (_req, res) => send(res, async () => { await settled(); await stop(); await start(); return status() }))
         // 工作台：同一个进程的网页界面（登录地址只在内存里，经这个路由交给界面半身的受控网页容器）
         const workbench = async () => {
           if (incompatible) return { incompatible, previous: await previousVersion(root, paths.dshVersion) }

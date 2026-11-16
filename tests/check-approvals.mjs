@@ -8,11 +8,16 @@
 //   DSH2FORSION_ROOT=<已装好运行时的根目录:node/ 与 runtime/> node tests/check-approvals.mjs
 //
 // 只装 @michengai/dsh-skills-manager@1.4.6(获准实跑的三个之一),走工作台装插件的真路径(停住 → 体检 → 放行)。启动令牌不打印。
+//
+// 真模型:DSH2FORSION_LIVE_HOME=<一份登录过的 DSH 目录> [DSH2FORSION_LIVE_MODEL=<模型 id 或名字里的一段,缺省 deepseek-flash>]
+//   只把那份目录的登录(.credentials.yaml / .anonymous-user-id)拷进临时 DSH 目录,跑完删掉;那份目录本身不读别的、不写。
+//   组合里关掉 DSH 自带的读写文件 / 搜文件 / 跑命令 / 后台任务(真模型手里只有 skills-manager 这类插件工具),
+//   只跑 create_skill 那几条:Forsion 发的轮允许 / 拒绝,工作台发的轮留在工作台。写文件、③、④ 是按假模型剧本写的,真模型下跳过。
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -24,6 +29,11 @@ const sourceRoot = process.env.DSH2FORSION_ROOT
 if (!sourceRoot) { console.error('set DSH2FORSION_ROOT to a data root with node/ and runtime/'); process.exit(2) }
 const SKILLS_MANAGER = '@michengai/dsh-skills-manager@1.4.6'
 const RENAMED = 'approval/request-renamed-by-test'
+const LIVE_HOME = process.env.DSH2FORSION_LIVE_HOME ?? ''
+const LIVE = !!LIVE_HOME
+const LIVE_MODEL = process.env.DSH2FORSION_LIVE_MODEL || 'deepseek-flash' // 账号登录那条线上的;官方线(deepseek-official)的 deepseek-v4-flash 要 API key
+const NATIVE_OFF = ['tool-bash', 'tool-pwsh', 'tool-jobs', 'tool-fs', 'tool-fs-search']
+if (LIVE && !existsSync(join(LIVE_HOME, '.credentials.yaml'))) { console.error('DSH2FORSION_LIVE_HOME has no DSH login (.credentials.yaml)'); process.exit(2) }
 
 let n = 0
 const it = async (name, fn) => { const t0 = Date.now(); await fn(); n++; console.log(`ok ${n} ${name} (${((Date.now() - t0) / 1000).toFixed(1)}s)`) }
@@ -53,9 +63,26 @@ const { resolveDshHome } = await import('../src/engine/layout.mjs')
 assert.ok(resolveDshHome(process.env).startsWith(scratch) && !resolveDshHome(process.env).startsWith(join(homedir(), '.dsh')), 'DSH_HOME must point into the test folder')
 console.log(`test data: ${scratch}`)
 
-const stub = await startStubModel({ outside: OUTSIDE })
+const stub = LIVE ? null : await startStubModel({ outside: OUTSIDE })
 // 常驻 DSH 的环境走白名单、不带 provider key:像用户那样写进 DSH 目录的 .env
-await writeFile(join(scratch, 'dsh', '.env'), `DEEPSEEK_BASE_URL=${stub.url}\nDEEPSEEK_API_KEY=stub-not-a-real-key\n`)
+if (!LIVE) await writeFile(join(scratch, 'dsh', '.env'), `DEEPSEEK_BASE_URL=${stub.url}\nDEEPSEEK_API_KEY=stub-not-a-real-key\n`)
+const liveLogin = ['.credentials.yaml', '.anonymous-user-id'].map(f => join(scratch, 'dsh', f))
+if (LIVE) {
+  for (const f of liveLogin) {
+    const from = join(LIVE_HOME, f.slice(join(scratch, 'dsh').length + 1))
+    if (existsSync(from)) { await copyFile(from, f); await chmod(f, 0o600) }
+  }
+  // 组合先由测试照插件的样子建好(带记号,插件认作自己的),补丁里把 DSH 自带的读写 / 命令关掉;插件见补丁已在就不再写
+  const { FUSION_MARKER } = await import('../src/engine/constants.mjs')
+  const { fusionPatch, FUSION_PATCH_VERSION } = await import('../src/engine/fusion.mjs')
+  const prof = join(scratch, 'dsh', 'profiles', 'forsion')
+  await mkdir(prof, { recursive: true })
+  await writeFile(join(prof, FUSION_MARKER), JSON.stringify({ createdBy: 'dsh2forsion', patch: FUSION_PATCH_VERSION, at: new Date().toISOString() }) + '\n')
+  let patch = fusionPatch()
+  for (const id of NATIVE_OFF) patch = patch.replace(`- id: ${id}\n  disabled: false\n`, '')
+  await writeFile(join(prof, 'cordis.patch.yml'), patch + '# check-approvals (live): DSH\'s own file / shell / search / job tools are off\n' + NATIVE_OFF.map(id => `- id: ${id}\n  disabled: true\n`).join(''))
+  console.log(`live: login copied in (removed afterwards), DSH's own ${NATIVE_OFF.join(' / ')} off, model matching "${LIVE_MODEL}"`)
+}
 
 const { createPlugin } = await import(pathToFileURL(join(pluginDir, 'dist/index.js')).href)
 
@@ -85,7 +112,7 @@ async function boot() {
   const engine = createPlugin()
   await engine.activate(ctx)
   // 测试扮演的 Forsion:审批按 policy 回(allow / reject / hold),扩展通知记下来
-  const forsion = { asked: [], notices: [], policy: 'allow', held: [] }
+  const forsion = { asked: [], notices: [], policy: 'allow', held: [], text: {}, tools: [] }
   let conn = null, id = 0, buf = ''
   const waiters = new Map()
   const send = m => conn.input.write(JSON.stringify(m) + '\n')
@@ -101,10 +128,15 @@ async function boot() {
       const m = JSON.parse(line)
       if (m.id != null && !m.method && waiters.has(m.id)) { waiters.get(m.id)(m); waiters.delete(m.id) }
       else if (m.method === 'session/request_permission') {
-        forsion.asked.push({ sessionId: m.params.sessionId, toolCallId: m.params.toolCall?.toolCallId })
+        forsion.asked.push({ sessionId: m.params.sessionId, toolCallId: m.params.toolCall?.toolCallId, title: String(m.params.toolCall?.title ?? '') })
         if (forsion.policy === 'hold') forsion.held.push(m)
         else answer(m, forsion.policy)
       } else if (m.method === '_forsion/notice') forsion.notices.push(m.params)
+      else if (m.method === 'session/update') {
+        const u = m.params?.update, sid = m.params?.sessionId
+        if (u?.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text') forsion.text[sid] = (forsion.text[sid] ?? '') + u.content.text
+        else if (u?.sessionUpdate === 'tool_call') forsion.tools.push({ sessionId: sid, title: String(u.title ?? ''), kind: u.kind })
+      }
       else if (m.method && m.id != null) send({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'not in this test' } })
     }
   }
@@ -134,13 +166,31 @@ async function boot() {
   }
   const pending = async sessionId => (await webRpc('session/state', { request: { sessionId } }))?.result?.value?.pendingInput ?? []
   const webSay = (sessionId, text) => webRpc('session/prompt', { request: { requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text }] } })
-  const newSession = async () => (await acp('session/new', { cwd: join(scratch, 'ws'), mcpServers: [] })).sessionId
-  const say = (sessionId, text) => acp('session/prompt', { sessionId, prompt: [{ type: 'text', text }] })
+  const newSession = async () => {
+    const r = await acp('session/new', { cwd: join(scratch, 'ws'), mcpServers: [] })
+    if (LIVE) await pickModel(r)
+    return r.sessionId
+  }
+  // 真模型:用登录的账号能用的那条线上、名字含 LIVE_MODEL 的模型(DSH 的模型在 configOptions 里,值是不透明的串)
+  const flat = opts => (Array.isArray(opts) ? opts : []).flatMap(o => Array.isArray(o?.options) ? flat(o.options) : typeof o?.value === 'string' ? [o] : [])
+  const pickModel = async r => {
+    const sel = (r.configOptions ?? []).find(o => o?.type === 'select' && (o.category === 'model' || o.id === 'model'))
+    const all = flat(sel?.options)
+    const m = all.find(o => o.value.includes(LIVE_MODEL) || String(o.name ?? '').includes(LIVE_MODEL))
+    if (!sel || !m) throw new Error(`no model matching "${LIVE_MODEL}": ${all.map(o => o.name ?? o.value).join(' | ')}`)
+    if (sel.currentValue !== m.value) await acp('session/set_config_option', { sessionId: r.sessionId, configId: sel.id, value: m.value })
+    if (!pickModel.said) { pickModel.said = true; console.log(`   live model: ${m.name ?? m.value}`) }
+  }
+  const say = (sessionId, text, ms) => acp('session/prompt', { sessionId, prompt: [{ type: 'text', text }] }, ms)
   return { engine, get conn() { return conn }, attach, call, acp, notify: (method, params) => send({ jsonrpc: '2.0', method, params }), webRpc, pending, webSay, newSession, say, forsion, answer }
 }
 const noDshLeft = () => !execFileSync('ps', ['-axo', 'pid,command'], { encoding: 'utf8' }).split('\n').some(l => l.includes('dsh/lib/bin.js') && l.includes(scratch))
 const wrote = name => existsSync(join(OUTSIDE, name))
 const skillAt = name => existsSync(join(scratch, 'dsh', 'skills', name))
+const stubOnly = (name, fn) => LIVE ? console.log(`skip (stub script, not live) ${name}`) : it(name, fn)
+const LIVE_SKILL = name => `Use the create_skill tool exactly once to create a skill named "${name}" (description: "Live approval test", body: "# ${name}\\nA test skill."). Do not use any other tool. When the tool returns, reply with one word: DONE if the skill was created, REFUSED if it was not.`
+const said = (x, sid) => `model said: ${String(x.forsion.text[sid] ?? '').trim().replace(/\s+/g, ' ').slice(0, 160) || '(nothing)'}; tools: ${x.forsion.tools.filter(t => t.sessionId === sid).map(t => t.title).join(' | ') || '(none)'}`
+const NATIVE_TOOL = /^(read|read_image|write|edit|apply_patch|glob|grep|bash|pwsh|job_\w+)\b/i
 
 let A = null, B = null
 try {
@@ -198,7 +248,47 @@ try {
   })
 
   const S1 = await A.newSession()
-  await it('① Forsion turn, elevated write, allowed in Forsion: asked over ACP (not in the workbench), the file is written', async () => {
+  if (LIVE) {
+    await it('live ① Forsion turn, the real model calls create_skill, allowed in Forsion: asked over ACP, the skill is created', async () => {
+      forsion.policy = 'allow'
+      const before = forsion.asked.length
+      const r = await A.say(S1, LIVE_SKILL('forsion-live-allowed'), 240_000)
+      console.log(`   ${said(A, S1)}; asked: ${forsion.asked.length - before}`)
+      assert.equal(r.stopReason, 'end_turn')
+      const asked = forsion.asked.slice(before)
+      assert.ok(asked.length >= 1 && asked.every(a => a.sessionId === S1), `Forsion was asked for S1 (${asked.length})`)
+      assert.ok(skillAt('forsion-live-allowed'), 'skill folder exists')
+      assert.ok(!forsion.notices.some(x => x.sessionId === S1 && !x.clear), 'no "waiting in the workbench" notice for an approval Forsion took')
+    })
+    await it('live ① the real model calls create_skill, rejected in Forsion: asked, no skill', async () => {
+      forsion.policy = 'reject'
+      const before = forsion.asked.length, mark = forsion.text[S1]?.length ?? 0
+      const r = await A.say(S1, LIVE_SKILL('forsion-live-rejected'), 240_000)
+      console.log(`   model said: ${String(forsion.text[S1] ?? '').slice(mark).trim().replace(/\s+/g, ' ').slice(0, 160) || '(nothing)'}; asked: ${forsion.asked.length - before}`)
+      assert.ok(['end_turn', 'cancelled', 'refusal'].includes(r.stopReason), r.stopReason)
+      assert.ok(forsion.asked.length - before >= 1, 'Forsion was asked')
+      assert.ok(!skillAt('forsion-live-rejected'), 'rejected: no skill')
+    })
+    await it('live ② workbench turn on the same session, the real model calls create_skill: the approval stays in the workbench, Forsion is not asked', async () => {
+      forsion.policy = 'allow'
+      const before = forsion.asked.length
+      const accepted = await A.webSay(S1, LIVE_SKILL('workbench-live-skill'))
+      assert.equal(accepted?.result?.ok, true, JSON.stringify(accepted).slice(0, 200))
+      await waitFor('the approval pending in the workbench', async () => (await A.pending(S1)).includes('approval'), 180_000)
+      await sleep(1000)
+      assert.equal(forsion.asked.length, before, 'ACP client was not asked')
+      await A.webRpc('session/cancel', { request: { sessionId: S1 } })
+      await waitFor('the workbench approval to settle', async () => !(await A.pending(S1)).includes('approval'), 15_000)
+      assert.ok(!skillAt('workbench-live-skill'))
+    })
+    await it('live: DSH\'s own file / shell tools stayed off (no such tool call; the profile patch still says so)', async () => {
+      const native = forsion.tools.filter(t => NATIVE_TOOL.test(t.title))
+      assert.deepEqual(native, [], `native tools used: ${native.map(t => t.title).join(' | ')}`)
+      const patch = await readFile(join(scratch, 'dsh/profiles/forsion/cordis.patch.yml'), 'utf8')
+      for (const id of NATIVE_OFF) assert.match(patch, new RegExp(`- id: ${id}\\n  disabled: true`))
+    })
+  }
+  await stubOnly('① Forsion turn, elevated write, allowed in Forsion: asked over ACP (not in the workbench), the file is written', async () => {
     forsion.policy = 'allow'
     const before = forsion.asked.length
     const r = await A.say(S1, 'WRITE allowed.txt')
@@ -208,7 +298,7 @@ try {
     assert.ok(!forsion.notices.some(x => x.sessionId === S1 && !x.clear), 'no "waiting in the workbench" notice for an approval Forsion took')
   })
 
-  await it('① Forsion turn, elevated write, rejected in Forsion: the file is not written', async () => {
+  await stubOnly('① Forsion turn, elevated write, rejected in Forsion: the file is not written', async () => {
     forsion.policy = 'reject'
     const before = forsion.asked.length
     await A.say(S1, 'WRITE rejected.txt')
@@ -216,7 +306,7 @@ try {
     assert.ok(!wrote('rejected.txt'))
   })
 
-  await it('① Forsion turn, skills-manager create_skill (plugin approval), allowed in Forsion: the skill is created', async () => {
+  await stubOnly('① Forsion turn, skills-manager create_skill (plugin approval), allowed in Forsion: the skill is created', async () => {
     forsion.policy = 'allow'
     const before = forsion.asked.length
     await A.say(S1, 'SKILL forsion-allowed-skill')
@@ -224,7 +314,7 @@ try {
     assert.ok(skillAt('forsion-allowed-skill'), 'skill folder exists')
   })
 
-  await it('① Forsion turn, create_skill rejected in Forsion: no skill', async () => {
+  await stubOnly('① Forsion turn, create_skill rejected in Forsion: no skill', async () => {
     forsion.policy = 'reject'
     const before = forsion.asked.length
     await A.say(S1, 'SKILL forsion-rejected-skill')
@@ -232,7 +322,7 @@ try {
     assert.ok(!skillAt('forsion-rejected-skill'))
   })
 
-  await it('② workbench turn on the same (Forsion-held) session: the approval stays in the workbench, Forsion is not asked', async () => {
+  await stubOnly('② workbench turn on the same (Forsion-held) session: the approval stays in the workbench, Forsion is not asked', async () => {
     forsion.policy = 'allow'
     const before = forsion.asked.length
     const accepted = await A.webSay(S1, 'WRITE from-workbench.txt')
@@ -246,7 +336,7 @@ try {
     assert.ok(!wrote('from-workbench.txt'))
   })
 
-  await it('③ both pending at once: Forsion\'s session asks Forsion, the workbench session waits in the workbench; each answers its own', async () => {
+  await stubOnly('③ both pending at once: Forsion\'s session asks Forsion, the workbench session waits in the workbench; each answers its own', async () => {
     const S2 = await A.newSession()
     forsion.policy = 'hold'
     const before = forsion.asked.length
@@ -267,7 +357,7 @@ try {
     assert.ok(!wrote('both-workbench.txt'))
   })
 
-  await it('③b a workbench approval already pending, then Forsion sends on that session (queued behind it): Forsion is told it waits in the workbench, the notice clears, Forsion\'s turn comes back', async () => {
+  await stubOnly('③b a workbench approval already pending, then Forsion sends on that session (queued behind it): Forsion is told it waits in the workbench, the notice clears, Forsion\'s turn comes back', async () => {
     const S4 = await A.newSession()
     const accepted = await A.webSay(S4, 'WRITE queued-workbench.txt')
     assert.equal(accepted?.result?.ok, true)
@@ -295,15 +385,15 @@ try {
   })
 
   // ④ 负对照 / 退回 A:桥挂到改了名的事件上
-  process.env.DSH2FORSION_APPROVAL_EVENT = RENAMED
-  B = await boot()
-  await it('④ self-check forced to mismatch (event renamed): status says the workbench, with the reason', async () => {
+  if (!LIVE) process.env.DSH2FORSION_APPROVAL_EVENT = RENAMED
+  B = LIVE ? null : await boot()
+  await stubOnly('④ self-check forced to mismatch (event renamed): status says the workbench, with the reason', async () => {
     const st = await waitFor('the approval self-check', async () => (await B.call('GET', '/status')).approvals, 15_000)
     assert.equal(st.mode, 'workbench')
     assert.match(st.reason, /approval\/request-renamed-by-test/)
   })
 
-  await it('④ Forsion turn with the self-check off: not taken over; Forsion gets "waiting in the workbench" + "Open the workbench"; cleared when it settles', async () => {
+  await stubOnly('④ Forsion turn with the self-check off: not taken over; Forsion gets "waiting in the workbench" + "Open the workbench"; cleared when it settles', async () => {
     const S3 = await B.newSession()
     B.forsion.policy = 'allow'
     const before = B.forsion.asked.length
@@ -321,7 +411,7 @@ try {
     assert.ok(!wrote('fallback.txt'))
   })
 
-  await it('④ stopping leaves no DSH process', async () => {
+  await stubOnly('④ stopping leaves no DSH process', async () => {
     await B.engine.deactivate()
     await Promise.race([B.conn.closed, sleep(8000).then(() => { throw new Error('connection did not close') })])
     await waitFor('no DSH left', noDshLeft, 10_000)
@@ -329,12 +419,13 @@ try {
   })
 } catch (error) {
   console.error(error)
-  for (const t of stub.transcript.slice(-4)) console.error(`  model saw ${t.tools.length} tools (create_skill: ${t.tools.includes('create_skill')}) → ${String(t.reply).slice(0, 200)}`)
+  for (const t of stub?.transcript.slice(-4) ?? []) console.error(`  model saw ${t.tools.length} tools (create_skill: ${t.tools.includes('create_skill')}) → ${String(t.reply).slice(0, 200)}`)
   try { const x = A ?? B; if (x) console.error((await x.call('GET', '/logs')).sidecar.slice(-25).join('\n')) } catch { /* 已停 */ }
   process.exitCode = 1
 } finally {
   for (const x of [A, B]) if (x) { try { await x.engine.deactivate() } catch { /* 已停 */ } }
-  await stub.close()
+  await stub?.close()
+  if (LIVE) for (const f of liveLogin) await rm(f, { force: true })
   delete process.env.DSH2FORSION_APPROVAL_EVENT
 }
 console.log(`check-approvals: ${n} passed`)

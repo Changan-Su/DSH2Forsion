@@ -756,7 +756,7 @@ ctx.registerView({
         if (r?.stopped) { stopped(); return }
         const rep = r?.report
         if (!rep || rep.n !== String(n)) continue
-        if (rep.state === 'ok') { state = 'surface'; note.hidden = true; box.hidden = false; return }
+        if (rep.state === 'ok') { state = 'surface'; note.hidden = true; box.hidden = false; box.style.visibility = ''; return }
         if (rep.state === 'incompatible') { mismatch(); return }
         if (rep.state === 'no-session') { say('no-session', t('railNoSessionTitle'), t('railNoSession')); return }
         failed(rep.reason || rep.state)
@@ -767,6 +767,8 @@ ctx.registerView({
 
     const show = async (sid) => {
       const my = ++gen
+      // 换场 / 重来:上一场的网页先遮住(不拆,同一页只换 #),这一次的回报说开成了再亮出来 —— 中途点不到上一场的文件
+      if (state === 'surface') { state = 'loading'; box.style.visibility = 'hidden' }
       if (!sid) { say('no-session', t('railNoSessionTitle'), t('railNoSession')); return }
       if (!ctx.ui?.mountWebSurface) { say('old-host', t('oldHostSurfaceTitle'), t('oldHostSurface')); return }
       let status

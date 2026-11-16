@@ -1645,8 +1645,12 @@ function createPlugin() {
         await sidecar.stop(graceMs);
         await tools.refresh();
       };
+      const settled = () => starting?.then(() => {
+      }, () => {
+      });
       const restart = async () => {
         if (disposed) return;
+        await settled();
         await stop();
         if (!disposed) await start().catch((error) => log(`restart failed: ${error.message}`));
       };
@@ -1887,6 +1891,7 @@ function createPlugin() {
           return status();
         }));
         router.post("/sidecar/restart", (_req, res) => send(res, async () => {
+          await settled();
           await stop();
           await start();
           return status();

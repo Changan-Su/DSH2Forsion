@@ -130,6 +130,17 @@ await it('rail page: follows the active conversation — files first, the page D
   h = hashOf(surface.navigated[0])
   assert.deepEqual([h.get('d2f-rail'), h.get('d2f-session'), h.get('d2f-nonce')], ['*', 'e-f1', 'N2'])
   await until(() => !el.querySelector('.d2f-rail-box').hidden)
+  assert.equal(el.querySelector('.d2f-rail-box').style.visibility, '')
+  // 换到另一场已开始的:新一场还没回报之前,上一场的页遮住(点不到它的文件),回报开成了才亮出来
+  const okReport = report
+  report = () => null
+  setActive({ phase: 'idle', sessionId: 'f5' })
+  await until(() => surface.navigated.length === 2)
+  assert.equal(hashOf(surface.navigated[1]).get('d2f-session'), 'e-f5')
+  assert.equal(el.querySelector('.d2f-rail-box').style.visibility, 'hidden', 'the previous conversation\'s page is covered while the new one loads')
+  report = okReport
+  await until(() => el.querySelector('.d2f-rail-box').style.visibility === '')
+  assert.equal(el.querySelector('.d2f-rail-box').hidden, false)
   // 新对话草稿：说明
   setActive({ phase: 'idle', sessionId: null })
   await until(() => el.querySelector('.d2f-rail-note')?.dataset.state === 'no-session')
