@@ -64,7 +64,7 @@ function setup({ locale = 'zh', routes = {}, withSurface = false, tangu = {}, ha
 }
 
 const status = (over = {}) => ({
-  pluginVersion: '0.2.0', dshVersion: '0.2.2-rc.3', pinnedVersion: '0.2.2-rc.3', nodeVersion: 'v24.22.0',
+  pluginVersion: '0.3.0', dshVersion: '0.2.2-rc.3', pinnedVersion: '0.2.2-rc.3', nodeVersion: 'v24.22.0',
   runtime: { installed: true, installedVersions: ['0.2.2-rc.3'], previous: null }, job: { running: false, lines: [] },
   fusion: { home: '/home/u/.dsh', profile: 'forsion', incompatible: null, resident: true, events: [] },
   channel: { published: null, latest: null }, sidecar: { state: 'running', base: 'http://127.0.0.1:4100' },
@@ -74,7 +74,8 @@ const status = (over = {}) => ({
 
 await it('registers the workbench view, the runtime page, two commands and the DSH harness; no Space', () => {
   const { reg } = setup()
-  assert.deepEqual(Object.keys(reg.views), ['workbench'])
+  assert.deepEqual(Object.keys(reg.views), ['workbench', 'rail'])
+  assert.equal(reg.harness.railView, 'rail', 'DSH chats get the rail page through the harness seam')
   assert.deepEqual(Object.keys(reg.settings), ['manage'])
   assert.deepEqual(Object.keys(reg.commands).sort(), ['dsh2forsion-manage', 'dsh2forsion-open-workbench'])
   assert.equal(reg.harness.engineId, 'dsh')
@@ -84,6 +85,89 @@ await it('registers the workbench view, the runtime page, two commands and the D
   assert.deepEqual(reg.harness.sessionActions[0].label, { zh: '在 DSH 工作台里打开', en: 'Open in the DSH workbench' })
   assert.equal(manifest.spaces, undefined)
   assert.equal(typeof reg.commands['dsh2forsion-open-workbench'].title, 'function')
+})
+
+await it('rail page: follows the active conversation — files first, the page DSH remembers after; not started / mismatch / stopped become a note with one button', async () => {
+  let active = { phase: 'idle', sessionId: 'f1' }
+  const subs = new Set()
+  const setActive = (next) => { active = next; for (const cb of subs) cb(active) }
+  let report = (n) => ({ state: 'ok', n: String(n) })
+  let nonces = 0
+  let sidecar = 'running'
+  let regRef = null
+  // 回报跟着最近一次导航（地址 # 里的 n）
+  const latestN = () => { const sf = regRef?.surfaces.at(-1); if (!sf) return 0; const u = sf.navigated.at(-1) ?? sf.opts.url; return Number(new URLSearchParams(u.slice(u.indexOf('#') + 1)).get('n')) }
+  const { reg, calls } = setup({
+    withSurface: true,
+    tangu: { agentStatus: () => active, subscribeAgentStatus: (cb) => { subs.add(cb); return () => subs.delete(cb) } },
+    routes: {
+      '/status': () => status({ sidecar: { state: sidecar, base: 'http://127.0.0.1:4100' } }),
+      'POST /hold': (body) => (body.sessionId === 'f2' ? { ok: false, code: 'no_engine_session' } : { ok: true, engineSessionId: `e-${body.sessionId}` }),
+      'POST /rail': () => ({ url: 'http://127.0.0.1:4100/?token=abc', base: 'http://127.0.0.1:4100', nonce: `N${++nonces}` }),
+      'POST /rail/report': () => ({ known: true, report: report(latestN()) }),
+      'POST /appearance': { ok: true },
+      'POST /sidecar/start': () => { sidecar = 'running'; return status() },
+    },
+  })
+  regRef = reg
+  const el = document.createElement('div')
+  const dispose = reg.views.rail.mount(el)
+  const surface = await until(() => reg.surfaces[0])
+  const hashOf = (u) => new URLSearchParams(u.slice(u.indexOf('#') + 1))
+  let h = hashOf(surface.opts.url)
+  assert.equal(surface.opts.partition, 'rail', 'its own partition, apart from the workbench')
+  assert.deepEqual([h.get('d2f-rail'), h.get('d2f-session'), h.get('d2f-nonce')], ['files', 'e-f1', 'N1'])
+  await until(() => !el.querySelector('.d2f-rail-box').hidden)
+  assert.equal(el.querySelector('.d2f-rail-note').hidden, true)
+  // 换到 DSH 那边还没开始的一场：说明，不替它建会话；网页容器留着（换回来不重登）
+  setActive({ phase: 'idle', sessionId: 'f2' })
+  await until(() => el.querySelector('.d2f-rail-note')?.dataset.state === 'no-session')
+  assert.match(el.textContent, /发一句之后，这里显示 DSH 的页面/)
+  assert.equal(el.querySelector('.d2f-rail-note').textContent, '还没开始发一句之后，这里显示 DSH 的页面。', 'a note without a button draws no stray text')
+  assert.equal(reg.surfaces.length, 1)
+  // 换回第一场：同一个容器只换 #，页不指定（DSH 自己记着这一场看的哪页）
+  setActive({ phase: 'idle', sessionId: 'f1' })
+  await until(() => surface.navigated.length === 1)
+  h = hashOf(surface.navigated[0])
+  assert.deepEqual([h.get('d2f-rail'), h.get('d2f-session'), h.get('d2f-nonce')], ['*', 'e-f1', 'N2'])
+  await until(() => !el.querySelector('.d2f-rail-box').hidden)
+  assert.equal(el.querySelector('.d2f-rail-box').style.visibility, '')
+  // 换到另一场已开始的:新一场还没回报之前,上一场的页遮住(点不到它的文件),回报开成了才亮出来
+  const okReport = report
+  report = () => null
+  setActive({ phase: 'idle', sessionId: 'f5' })
+  await until(() => surface.navigated.length === 2)
+  assert.equal(hashOf(surface.navigated[1]).get('d2f-session'), 'e-f5')
+  assert.equal(el.querySelector('.d2f-rail-box').style.visibility, 'hidden', 'the previous conversation\'s page is covered while the new one loads')
+  report = okReport
+  await until(() => el.querySelector('.d2f-rail-box').style.visibility === '')
+  assert.equal(el.querySelector('.d2f-rail-box').hidden, false)
+  // 新对话草稿：说明
+  setActive({ phase: 'idle', sessionId: null })
+  await until(() => el.querySelector('.d2f-rail-note')?.dataset.state === 'no-session')
+  // 回报「对不上」：说明 + 打开工作台，不自己重试
+  report = (n) => ({ state: 'incompatible', n: String(n), reason: 'missing: sidebarRight.openTab' })
+  setActive({ phase: 'idle', sessionId: 'f3' })
+  await until(() => el.querySelector('.d2f-rail-note')?.dataset.state === 'mismatch')
+  assert.match(el.textContent, /这一版 DSH 对不上右栏页/)
+  const holds = calls.filter((c) => c.path === '/hold').length
+  el.querySelector('[data-act="rail-workbench"]').click()
+  assert.ok(calls.some((c) => c.openView === 'workbench'))
+  for (const cb of subs) cb({ ...active, phase: 'thinking' }) // 状态变了不重试
+  await new Promise((r) => setTimeout(r, 50))
+  assert.equal(calls.filter((c) => c.path === '/hold').length, holds)
+  // DSH 停了：说明 + 启动 DSH；点了才起，起来就接着显示
+  report = (n) => ({ state: 'ok', n: String(n) })
+  sidecar = 'stopped'
+  setActive({ phase: 'idle', sessionId: 'f4' })
+  await until(() => el.querySelector('.d2f-rail-note')?.dataset.state === 'stopped')
+  assert.ok(!calls.some((c) => c.path === '/sidecar/start' || c.body?.sessionId === 'f4'), 'does not start DSH or hold the conversation by itself')
+  el.querySelector('[data-act="rail-start"]').click()
+  await until(() => calls.some((c) => c.path === '/sidecar/start'))
+  await until(() => reg.surfaces[1])
+  await until(() => !el.querySelector('.d2f-rail-box').hidden)
+  dispose()
+  assert.equal(subs.size, 0, 'unmount unsubscribes')
 })
 
 await it('every string exists in both languages, English has no Chinese characters, placeholders match', () => {
@@ -386,7 +470,7 @@ await it('a newer right-click whose hold fails drops the earlier, unused landing
 })
 
 // 照 DSH 的样子加载桥的网页端小模块：openSession 把「当前会话」写进 localStorage（DSH 的 uiWorkspace 就存在那里）
-async function loadClient({ url = 'http://127.0.0.1:4100/', saved = null } = {}) {
+async function loadClient({ url = 'http://127.0.0.1:4100/', saved = null, rail = null } = {}) {
   const clientSrc = await readFile(join(repo, 'src/dsh-bridge/client.js'), 'utf8')
   const window = new Window({ url })
   let mod = null
@@ -403,11 +487,51 @@ async function loadClient({ url = 'http://127.0.0.1:4100/', saved = null } = {})
     uiWorkspace: { openSession: (id) => { state.opened.push(id); setCurrent(id) } },
     sessions: { list: { getSnapshot: () => ({ byId: state.byId }), subscribe: (f) => { subs.add(f); return () => subs.delete(f) } } },
     effect: (f) => { cleanups.push(f()) },
+    // 右栏页那半要的两个服务：给了 rail 就当这一版 DSH 有（scope 同 DSH 的 ctx.inject），没给就当一直没出现
+    inject: (_deps, fn) => { if (rail) fn({ ...rail, effect: (f) => { cleanups.push(f()) } }) },
   })
   const notify = () => { for (const f of subs) f() }
   const close = async () => { for (const c of cleanups) c?.(); await window.happyDOM.close() }
   return { window, state, setCurrent, notify, close }
 }
+
+await it('rail mode: a page that keeps refusing to open is reported as failed at the deadline; unloading stops all retries', async () => {
+  let opens = 0
+  const rail = {
+    sidebarRight: {
+      openTab: () => { opens++; throw new Error('no session surface is mounted') },
+      isExpanded: () => true, toggleExpanded() {}, toggleFullscreen() {}, commandTarget: () => null, focusedTarget: () => null,
+      mounted: { getSnapshot: () => 's1' },
+    },
+    sidebarRightTabs: { get: (k) => (k === 'files' ? { kind: 'files', title: () => 'Files' } : undefined), entries: () => [{ kind: 'files', title: () => 'Files' }], subscribe: () => () => {} },
+  }
+  // 小模块跑在 happy-dom 自己的上下文里：fetch / Date 是窗口的那份
+  const sent = []
+  let c = await loadClient({ url: 'http://127.0.0.1:4100/#d2f-rail=files&d2f-session=s1&d2f-nonce=N1&n=1', rail })
+  c.window.fetch = async (_u, init) => { sent.push(JSON.parse(init.body)); return new c.window.Response('{}') }
+  c.state.byId = { s1: {} }
+  await until(() => opens >= 2)
+  assert.equal(sent.length, 0, 'still retrying before the deadline')
+  const realNow = c.window.Date.now
+  c.window.Date.now = () => realNow.call(c.window.Date) + 60_000 // 把这个窗口的钟拨过时限
+  await until(() => sent.some(r => r.state === 'failed'))
+  const failed = sent.find(r => r.state === 'failed')
+  assert.match(failed.reason, /no session surface/)
+  assert.equal(failed.n, '1')
+  const after = opens
+  await new Promise(r => setTimeout(r, 300))
+  assert.equal(opens, after, 'no more retries after the failure report')
+  await c.close()
+  // 还在重试时卸载：轮询一并撤掉
+  opens = 0
+  c = await loadClient({ url: 'http://127.0.0.1:4100/#d2f-rail=files&d2f-session=s1&d2f-nonce=N2&n=1', rail })
+  c.window.fetch = async () => new c.window.Response('{}')
+  await until(() => opens >= 2)
+  await c.close()
+  const left = opens
+  await new Promise(r => setTimeout(r, 300))
+  assert.equal(opens, left, 'unloading stops the retries')
+})
 
 await it('bridge web module: lands once the conversation shows up; busy session lists do not push the fallback back', async () => {
   const { window, state, notify, close } = await loadClient()

@@ -12,7 +12,7 @@ import { DSH_VERSION, NODE_VERSION, PNPM_VERSION } from './constants.mjs'
 
 // CI 的发布那一步还没打开（见仓库 README「跟版通道」）：在那之前取不到清单，通道停在随包那一版。
 export const CHANNEL_URL = 'https://github.com/Changan-Su/DSH2Forsion/releases/download/dsh-channel/runtime-manifest.json'
-export const PLUGIN_VERSION = '0.2.0'
+export const PLUGIN_VERSION = '0.3.0'
 const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
 const sha256 = text => createHash('sha256').update(text).digest('hex')

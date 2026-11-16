@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 — 未发布 / Unreleased
+
+第 2 档（右栏页 + 截图类工具）。仍钉 DSH `0.2.2-rc.3`。需要 Changan-Su/Forsion#722 的宿主接缝（未发布；旧宿主上没有右栏页，别的照旧）。
+
+- **右栏页**：由 DSH 跑的对话，右栏「详情 / 文件 / 大纲」后面自动多一页「DSH」，里面是 DSH 右侧栏本来的样子（文件、插件登记的页、它自己那排页签）；换到 Tangu 的对话这一页就关，前台照旧是你在看的那页。跟着当前对话走：头一次开「文件」，之后留着 DSH 为这一场记住的那页。只用 DSH 公开的 `sidebarRight` / `sidebarRightTabs`：网页开在右栏自己的分区里，地址 # 带页、会话、一次性口令和序号，页面凭口令把开没开成报回来（旧导航迟到的回报盖不掉新的）。还没开始的对话写「发一句之后，这里显示 DSH 的页面」，不替它建会话；DSH 对不上 / 没装好时一句说明 +「打开工作台」；DSH 没在跑时 +「启动 DSH」，不自己起、不自己重试。
+- **截图类工具交给 DSH**：桥回答「这场会话此刻的模型收不收图」（按 DSH 自己的模型目录和附件规则），Forsion 据此只在模型看得见时才让 DSH 跑电脑控制；浏览器、电脑控制、截桌面、看图片的截图经工具桥交给模型。
+- 换到另一场时，新一场的页报回来之前，上一场的页先遮住（点不到上一场的文件）。
+- 修：DSH 还在启动时点「重启 DSH」（或装完插件后自动重启），会报「exited with 0」并让 DSH 停着；现在先等那次启动收尾再重启。
+- 版本号 0.3.0（插件、引擎半身、运行时清单里的插件版本）。
+- Tier 2: in conversations DSH runs, the right sidebar gets a "DSH" page after Details, Files and Outline: DSH's own right sidebar (files, pages plugins register, its own tab strip), following the active conversation, through DSH's public sidebar API only. Not-started conversations, a mismatched or missing DSH and a stopped DSH each show one sentence and one button (open the workbench / start DSH); nothing retries on its own; when switching conversations the previous page stays covered until the new one reports. Fixed: restarting DSH while it was still starting failed with "exited with 0" and left it stopped. The bridge answers whether the session's model takes images, so Forsion lets DSH run computer control only when it does; screenshots from browser and computer tools reach the model through the tool bridge.
+
 ## 0.2.0 — 未发布 / Unreleased
 
 第 1 档（DSH 工作台）。钉死 DSH `0.2.2-rc.3`。需要 Changan-Su/Forsion#697 的宿主接缝（未发布）。

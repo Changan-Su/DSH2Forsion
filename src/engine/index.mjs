@@ -90,8 +90,11 @@ export function createPlugin() {
         return starting
       }
       const stop = async (graceMs) => { tools.stopPolling(); reviews.stopPolling(); await sidecar.stop(graceMs); await tools.refresh() }
+      // 重启要等在途的那次启动先收尾:它还在起的时候停掉,随后的 start() 会拿到那次没起成的启动(报「exited with 0」,DSH 停着)
+      const settled = () => starting?.then(() => {}, () => {})
       const restart = async () => {
         if (disposed) return
+        await settled()
         await stop()
         if (!disposed) await start().catch(error => log(`restart failed: ${error.message}`))
       }
@@ -200,6 +203,14 @@ export function createPlugin() {
           sessionEvents.push({ ...event, seq: ++eventSeq, at: Date.now() })
           if (sessionEvents.length > 50) sessionEvents.splice(0, sessionEvents.length - 50)
         },
+        // 第 2 档：交过去的 Computer Use 先问「这场会话的模型收不收图」，由 DSH 自己按它的模型目录答；答不了 = 不知道（宿主按不能处理）
+        modelSeesImages: async (model) => {
+          if (typeof model !== 'string' || !model || sidecar.state !== 'running') return undefined
+          try {
+            const { image } = await sidecar.bridge('/models/images', { method: 'POST', body: JSON.stringify({ modelId: model }) })
+            return typeof image === 'boolean' ? image : undefined
+          } catch (error) { log(`modelSeesImages: ${error.message}`); return undefined }
+        },
       })
 
       // 技能照旧经后台 DSH 给 Tangu 的 Agent（改成直接读文件不在第 1 档）
@@ -289,7 +300,7 @@ export function createPlugin() {
         router.post('/sidecar/start', (_req, res) => send(res, async () => { await start(); return status() }))
         // 停到下次用：下一次和 DSH 对话或打开工作台时会再起
         router.post('/sidecar/stop', (_req, res) => send(res, async () => { await stop(); return status() }))
-        router.post('/sidecar/restart', (_req, res) => send(res, async () => { await stop(); await start(); return status() }))
+        router.post('/sidecar/restart', (_req, res) => send(res, async () => { await settled(); await stop(); await start(); return status() }))
         // 工作台：同一个进程的网页界面（登录地址只在内存里，经这个路由交给界面半身的受控网页容器）
         const workbench = async () => {
           if (incompatible) return { incompatible, previous: await previousVersion(root, paths.dshVersion) }
@@ -298,6 +309,18 @@ export function createPlugin() {
         }
         router.post('/workbench', (_req, res) => send(res, workbench))
         router.post('/space', (_req, res) => send(res, workbench))
+        // 右栏页（第 2 档）：同一份登录地址 + 一个回报口令（网页凭它把「这一页开没开成」报回桥，见 dsh-bridge/rail.js）。
+        // 地址里的 # 由 Forsion 那半拼（页、会话、口令），这里不拼：令牌只在登录那一下用，网页登录后自己去掉。
+        router.post('/rail', (_req, res) => send(res, async () => {
+          const wb = await workbench()
+          if (wb.incompatible) return wb
+          const { nonce } = await sidecar.bridge('/rail/nonce', { method: 'POST', body: '{}' })
+          return { ...wb, nonce }
+        }))
+        router.post('/rail/report', (req, res) => send(res, async () => {
+          if (sidecar.state !== 'running') return { known: false, report: null, stopped: true }
+          return sidecar.bridge(`/rail?nonce=${encodeURIComponent(String(req.body?.nonce ?? ''))}`)
+        }))
         // 右键菜单「在 DSH 工作台里打开」：先让宿主在常驻进程里把这一场开着留给工作台
         router.post('/hold', (req, res) => send(res, async () => {
           if (typeof ctx.sdk.engines?.hold !== 'function') throw new Error('Update Forsion to open conversations in the DSH workbench')

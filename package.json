@@ -1,6 +1,6 @@
 {
   "name": "dsh2forsion",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Adapt DeepSeek Harness agent capabilities to Tangu and WebUI contributions to Forsion",
   "type": "module",

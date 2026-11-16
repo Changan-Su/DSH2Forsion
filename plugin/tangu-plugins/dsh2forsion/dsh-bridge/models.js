@@ -51,6 +51,21 @@ export async function resolveModel(ctx, modelId, { signal } = {}) {
   signal?.throwIfAborted()
   return { model: publicModel(model) }
 }
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+/**
+ * 这个模型收不收图（第 2 档：Forsion 交过去的 Computer Use 要先问这一句，看不见屏幕的模型不让它去点）。
+ * 判法照 DSH 自己的（dsh-acp 的 supportsAcpImagePrompts）：附件库能存图，且模型声明了图片输入 —— 工具结果里的图也是这两样都有才交给模型
+ *（tests/check-images.mjs 实测）。供应商不认识 → image: false。
+ */
+export async function modelSeesImages(ctx, modelId, { signal } = {}) {
+  const llm = service(ctx), selected = route(modelId)
+  signal?.throwIfAborted()
+  if (!llm.listProviders().some(p => p.id === selected.provider)) return { image: false }
+  const store = ctx.get('attachments')?.imageLimits?.mediaTypes?.some(t => IMAGE_TYPES.includes(t)) === true
+  if (!store) return { image: false }
+  const info = await llm.resolveModelInfo(selected.provider, selected.model, signal)
+  return { image: info.inputModalities?.includes('image') === true }
+}
 function content(value) {
   if (value === null || value === undefined) return []
   if (typeof value === 'string') return value ? [{ type: 'text', text: value }] : []

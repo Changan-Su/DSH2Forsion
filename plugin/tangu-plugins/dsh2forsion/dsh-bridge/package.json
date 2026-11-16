@@ -1,8 +1,8 @@
 {
   "name": "dsh2forsion-bridge",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "DSH2Forsion bridge: lets the Forsion engine half review plugin installs and read DSH tools, prompt sections and appearance settings; lands the DSH web interface on a Forsion conversation",
+  "description": "DSH2Forsion bridge: lets the Forsion engine half review plugin installs and read DSH tools, prompt sections and appearance settings; lands the DSH web interface on a Forsion conversation; shows one DSH right sidebar page in the Forsion right panel",
   "type": "module",
   "main": "index.js",
   "exports": { ".": "./index.js", "./client": "./client.js", "./package.json": "./package.json", "./cordis.patch.yml": "./cordis.patch.yml" },

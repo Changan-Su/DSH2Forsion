@@ -62,7 +62,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 var CHANNEL_URL = "https://github.com/Changan-Su/DSH2Forsion/releases/download/dsh-channel/runtime-manifest.json";
-var PLUGIN_VERSION = "0.2.0";
+var PLUGIN_VERSION = "0.3.0";
 var VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 var sha256 = (text) => createHash("sha256").update(text).digest("hex");
 function compareVersions(a, b) {
@@ -1645,8 +1645,12 @@ function createPlugin() {
         await sidecar.stop(graceMs);
         await tools.refresh();
       };
+      const settled = () => starting?.then(() => {
+      }, () => {
+      });
       const restart = async () => {
         if (disposed) return;
+        await settled();
         await stop();
         if (!disposed) await start().catch((error) => log(`restart failed: ${error.message}`));
       };
@@ -1778,6 +1782,17 @@ function createPlugin() {
         onSession: (event) => {
           sessionEvents.push({ ...event, seq: ++eventSeq, at: Date.now() });
           if (sessionEvents.length > 50) sessionEvents.splice(0, sessionEvents.length - 50);
+        },
+        // 第 2 档：交过去的 Computer Use 先问「这场会话的模型收不收图」，由 DSH 自己按它的模型目录答；答不了 = 不知道（宿主按不能处理）
+        modelSeesImages: async (model) => {
+          if (typeof model !== "string" || !model || sidecar.state !== "running") return void 0;
+          try {
+            const { image } = await sidecar.bridge("/models/images", { method: "POST", body: JSON.stringify({ modelId: model }) });
+            return typeof image === "boolean" ? image : void 0;
+          } catch (error) {
+            log(`modelSeesImages: ${error.message}`);
+            return void 0;
+          }
         }
       });
       if (ctx.registerSkillProvider) ctx.registerSkillProvider({
@@ -1876,6 +1891,7 @@ function createPlugin() {
           return status();
         }));
         router.post("/sidecar/restart", (_req, res) => send(res, async () => {
+          await settled();
           await stop();
           await start();
           return status();
@@ -1887,6 +1903,16 @@ function createPlugin() {
         };
         router.post("/workbench", (_req, res) => send(res, workbench));
         router.post("/space", (_req, res) => send(res, workbench));
+        router.post("/rail", (_req, res) => send(res, async () => {
+          const wb = await workbench();
+          if (wb.incompatible) return wb;
+          const { nonce } = await sidecar.bridge("/rail/nonce", { method: "POST", body: "{}" });
+          return { ...wb, nonce };
+        }));
+        router.post("/rail/report", (req, res) => send(res, async () => {
+          if (sidecar.state !== "running") return { known: false, report: null, stopped: true };
+          return sidecar.bridge(`/rail?nonce=${encodeURIComponent(String(req.body?.nonce ?? ""))}`);
+        }));
         router.post("/hold", (req, res) => send(res, async () => {
           if (typeof ctx.sdk.engines?.hold !== "function") throw new Error("Update Forsion to open conversations in the DSH workbench");
           if (sidecar.state !== "running") await start();
