@@ -569,7 +569,8 @@ ctx.registerView({
       const needsBuilds = (rep.builds ?? []).some(b => b.state === 'needs')
       const maybeBuilds = !needsBuilds && (rep.builds ?? []).some(b => b.state === 'unknown')
       const failed = !!(r.error || rep.verdict === 'failed')
-      review.replaceChildren(
+      // 有的段落按条件才有（null）：replaceChildren 会把 null 当成文字「null」，先滤掉
+      review.replaceChildren(...[
         h('h3', {}, t('reviewTitle', { name })),
         h('ul', {}, ...lines),
         needsBuilds ? h('p', { class: 'd2f-muted', 'data-builds-how': '' }, t('reviewBuildsHow')) : null,
@@ -579,7 +580,8 @@ ctx.registerView({
         h('p', { class: 'd2f-muted' }, t('reviewTimeout')),
         h('div', { class: 'd2f-row' },
           h('button', { class: 'd2f-btn', 'data-act': 'review-deny', onclick: decide(false) }, t('reviewDeny')),
-          h('button', { class: `d2f-btn ${rep.verdict === 'blocked' ? 'danger' : 'primary'}`, 'data-act': 'review-allow', onclick: decide(true) }, t('reviewAllow'))))
+          h('button', { class: `d2f-btn ${rep.verdict === 'blocked' ? 'danger' : 'primary'}`, 'data-act': 'review-allow', onclick: decide(true) }, t('reviewAllow'))),
+      ].filter(Boolean))
     }
     let reviewTimer = null
     const pollReviews = async () => {
