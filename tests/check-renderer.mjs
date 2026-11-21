@@ -19,6 +19,8 @@ const until = async (fn, ms = 3000) => {
   while (Date.now() - t0 < ms) { const v = fn(); if (v) return v; await tick(10) }
   throw new Error('timed out waiting')
 }
+// 卡片顶层不该有散落的文字节点（缺席的段落被 replaceChildren 当成文字 "null" 就会落在这里）
+const strayText = el => [...el.childNodes].filter(c => c.nodeType === 3 && c.textContent.trim()).map(c => c.textContent)
 
 function setup({ locale = 'zh', routes = {}, withSurface = false, tangu = {}, harness = true } = {}) {
   const window = new Window({ url: 'http://localhost/' })
@@ -277,6 +279,7 @@ await it('installing from DSH\'s own plugin page: the workbench shows the check,
   assert.equal(card.querySelector('[data-builds]'), null, 'no build-script line when it brings none')
   assert.equal(card.querySelector('[data-builds-how]'), null)
   assert.match(card.textContent, /到 Harness 卡上点「重启 DSH」/)
+  assert.deepEqual(strayText(card), [], 'paragraphs that are not there leave no stray text')
   card.querySelector('[data-act="review-allow"]').click()
   await until(() => calls.some(c => c.path === '/reviews/decide' && c.body?.id === 'r1' && c.body?.allow === true))
   assert.equal(card.hidden, true)
@@ -310,6 +313,12 @@ await it('the report says which build scripts it needs and where to allow them (
   // 读不出 pnpm 的记录：照实说不知道
   reviews = [{ id: 'r4', spec: 'x@1.0.0', state: 'ready', report: { verdict: 'ok', name: 'x', version: '1.0.0', tools: [], promptChars: 0, inactive: [], hosts: [], builds: null } }]
   await until(() => card.dataset.id === 'r4' && /没读出它要不要跑构建脚本/.test(card.textContent), 4000)
+  assert.deepEqual(strayText(card), [])
+  // 体检没做完：不写「重启 DSH」那句，也不留 null
+  reviews = [{ id: 'r5', spec: 'x@1.0.0', state: 'ready', report: { verdict: 'failed', reasons: ['scratch start timed out'] } }]
+  await until(() => card.dataset.id === 'r5' && /体检没做完：scratch start timed out/.test(card.textContent), 4000)
+  assert.doesNotMatch(card.textContent, /重启 DSH/)
+  assert.deepEqual(strayText(card), [])
   // 卡片本身只回「装 / 不装」，不替用户允许构建脚本
   assert.ok(calls.every(c => !/approve|allowBuilds/i.test(`${c.path} ${JSON.stringify(c.body ?? '')}`)))
   dispose()
